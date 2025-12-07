@@ -1,0 +1,91 @@
+########################################
+# calc_ti84 project .gitignore
+# Expanded to exclude common C/C++ build artifacts, TI calculator outputs,
+# editor files, Python caches, and CMake intermediates.
+########################################
+
+# Primary build directory
+build/
+build-ce/
+
+# CMake generated files (root)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Nested build output folders (if additional build trees or presets created)
+*/bin/
+*/obj/
+
+# Object & intermediate compilation artifacts
+*.o
+*.obj
+*.lo
+*.d
+*.map
+
+# Static / shared libs
+*.a
+*.la
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+
+# Executables / firmware blobs
+*.exe
+*.out
+*.elf
+*.bin
+*.hex
+
+# TI calculator output & related files
+*.8xp
+*.8xv
+*.8xg
+*.8xm
+*.8xk
+*.8x*
+
+# Graphics converter outputs (if used)
+src/gfx/**
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor / IDE metadata
+.vscode/
+.idea/
+/.cache/
+*.swp
+*.swo
+*~
+
+# OS-specific cruft
+.DS_Store
+Thumbs.db
+*.tar
+*.tar.gz
+*.zip
+
+# Env & virtual environment folders
+.venv/
+.env
+.env.*
+
+# Logs & profiling (add as needed)
+*.log
+perf.data*
+
+# Backup files
+*.bak
+
+# If any auto-generated Python in tests host side
+tests/host/__pycache__/
+
+########################################
+

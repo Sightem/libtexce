@@ -1,0 +1,19 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "CE Demos",
+            "description": "Build CE demos for TI-84 Plus CE",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build-ce"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "displayName": "Build CE Demos",
+            "configurePreset": "default"
+        }
+    ]
+}

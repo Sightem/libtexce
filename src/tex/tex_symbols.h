@@ -1,0 +1,98 @@
+#ifndef TEX_TEX_SYMBOLS_H
+#define TEX_TEX_SYMBOLS_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+typedef enum
+{
+	SYM_NONE = 0,
+	SYM_GLYPH,
+	SYM_STRUCT,
+	SYM_FUNC,
+	SYM_ACCENT,
+	SYM_SPACE,
+	SYM_MULTIOP
+} SymbolKind;
+
+typedef struct
+{
+	const char* name;
+	uint16_t code; // for SYM_GLYPH => codepoint, otherwise small tag per kind
+	SymbolKind kind;
+} SymbolDesc;
+
+int texsym_find(const char* s, size_t len, SymbolDesc* out);
+
+enum
+{
+	SYMC_FRAC = 1,
+	SYMC_SQRT = 2,
+	SYMC_LIM = 3,
+	SYMC_TEXT = 4,
+	SYMC_OVERBRACE = 5,
+	SYMC_UNDERBRACE = 6,
+};
+
+enum
+{
+	SYMC_FUNC_SIN = 1,
+	SYMC_FUNC_COS = 2,
+	SYMC_FUNC_TAN = 3,
+	SYMC_FUNC_LN = 4,
+	SYMC_FUNC_LIM = 5,
+	SYMC_FUNC_LOG,
+	SYMC_FUNC_EXP,
+	SYMC_FUNC_MIN,
+	SYMC_FUNC_MAX,
+	SYMC_FUNC_SUP,
+	SYMC_FUNC_INF,
+	SYMC_FUNC_DET,
+	SYMC_FUNC_GCD,
+	SYMC_FUNC_DEG,
+	SYMC_FUNC_DIM,
+	SYMC_FUNC_SEC,
+	SYMC_FUNC_CSC,
+	SYMC_FUNC_COT,
+	SYMC_FUNC_ARCSIN,
+	SYMC_FUNC_ARCCOS,
+	SYMC_FUNC_ARCTAN,
+	SYMC_FUNC_SINH,
+	SYMC_FUNC_COSH,
+	SYMC_FUNC_TANH,
+	SYMC_FUNC_ARG,
+	SYMC_FUNC_KER,
+	SYMC_FUNC_PR,
+	SYMC_FUNC_HOM,
+	SYMC_FUNC_LG,
+	SYMC_FUNC_COTH,
+	SYMC_MULTIINT_2,
+	SYMC_MULTIINT_3,
+	SYMC_MULTIINT_4,
+	SYMC_MULTI_OINT_1,
+	SYMC_MULTI_OINT_2,
+	SYMC_MULTI_OINT_3,
+};
+
+enum
+{
+	SYMC_ACC_VEC = 1,
+	SYMC_ACC_HAT = 2,
+	SYMC_ACC_BAR = 3,
+	SYMC_ACC_DOT = 4,
+	SYMC_ACC_DDOT = 5,
+	SYMC_ACC_OVERLINE = 6,
+	SYMC_ACC_UNDERLINE = 7,
+};
+
+enum
+{
+	SYMC_THINSPACE = 1, // \\,
+	SYMC_MEDSPACE = 2, // \\:
+	SYMC_THICKSPACE = 3, // \\;
+	SYMC_NEGSPACE = 4, // \\!
+	SYMC_QUAD = 5, // \\quad (1 em)
+	SYMC_QQUAD = 6, // \\qquad (2 em)
+};
+
+#endif // TEX_TEX_SYMBOLS_H

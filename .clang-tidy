@@ -1,0 +1,6 @@
+Checks: >
+  bugprone-*,
+  clang-analyzer-*
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/.*|include/.*|tests/.*|fuzz/.*'
+FormatStyle: file

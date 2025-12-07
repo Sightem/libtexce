@@ -1,0 +1,9 @@
+CompileFlags:
+  # Use the compile_commands.json from native build
+  CompilationDatabase: build
+  
+  # Remove problematic flags
+  Remove: [-std=c++20, -std=c++17]
+  
+  # Add C standard for .c files
+  Add: [-std=c11]

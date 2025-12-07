@@ -1,0 +1,23 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "native",
+            "displayName": "Native (Testing)",
+            "description": "Build for host system with tests enabled",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ENABLE_HOST_TESTS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "native",
+            "displayName": "Build Native",
+            "configurePreset": "native"
+        }
+    ]
+}
