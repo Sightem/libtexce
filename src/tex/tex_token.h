@@ -2,7 +2,10 @@
 #ifndef TEX_TEX_TOKEN_H
 #define TEX_TEX_TOKEN_H
 
-// Forward declaration
+#include <stddef.h>
+#include "tex_arena.h"
+
+// Forward declarations
 struct TeX_Layout;
 
 typedef enum
@@ -30,18 +33,20 @@ typedef struct
 	int aux;
 } TeX_Token;
 
-// Tokenize top level input
-//
-// two pass design:
-//   pass 1: out_tokens == NULL -> returns required token count
-//   pass 2: out_tokens != NULL -> fills tokens up to max_tokens
-//
-// errors are reported via TEX_SET_ERROR on the layout. on error, returns -1
-// and the caller should check tex_get_last_error(layout) for details
-//
-// returns:
-//   >= 0 : number of tokens (including T_EOF)
-//   -1   : error occurred (check layout for details)
-int tex_tokenize_top_level(const char* input, TeX_Token* out_tokens, int max_tokens, struct TeX_Layout* layout);
+// Streaming tokenizer state
+typedef struct
+{
+	const char* cursor;
+	const char* end;
+} TeX_Stream;
+
+// Initialize stream for tokenizing
+void tex_stream_init(TeX_Stream* s, const char* input, int len);
+
+// get next token from stream
+// arena: optional arena for unescaped string allocation (NULL for dry-run)
+// layout: for error reporting
+// returns 1 if token produced, 0 on EOF
+int tex_stream_next(TeX_Stream* s, TeX_Token* out, TexArena* arena, struct TeX_Layout* layout);
 
 #endif // TEX_TEX_TOKEN_H

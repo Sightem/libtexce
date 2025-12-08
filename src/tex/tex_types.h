@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 // ================================
 // error codes
 // ================================
@@ -35,5 +38,9 @@ typedef struct
 	TeX_ErrorLogFn error_callback;
 	void* error_userdata;
 } TeX_Config;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TEX_TEX_TYPES_H

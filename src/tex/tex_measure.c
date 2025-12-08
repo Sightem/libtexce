@@ -450,6 +450,49 @@ static void measure_multiop(Node* n, FontRole role)
 	n->desc = tex_metrics_desc(effective_role);
 }
 
+static void measure_auto_delim(Node* n, FontRole role)
+{
+	TEX_ASSERT(n != NULL && "measure_auto_delim called with NULL node");
+
+	// Measure content first
+	Node* content = n->data.auto_delim.content;
+	int c_w = 0, c_asc = 0, c_desc = 0;
+	if (content)
+	{
+		measure_list(content, role, &c_w, &c_asc, &c_desc);
+	}
+	else
+	{
+		c_asc = tex_metrics_asc(role);
+		c_desc = tex_metrics_desc(role);
+	}
+
+	// calculate symmetric vertical extent around math axis
+	int axis = tex_metrics_math_axis();
+	int dist_up = c_asc - axis;
+	int dist_down = c_desc + axis;
+	int max_dist = TEX_MAX(dist_up, dist_down);
+
+	int min_dist = (tex_metrics_asc(role) + tex_metrics_desc(role)) / 2;
+	max_dist = TEX_MAX(max_dist, min_dist);
+
+	// total symmetric height
+	int h = max_dist * 2;
+	n->data.auto_delim.delim_h = (int16_t)h;
+
+	// delimiter widths
+	int delim_w = h / TEX_DELIM_WIDTH_FACTOR;
+	delim_w = TEX_CLAMP(delim_w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH);
+
+	int l_w = (n->data.auto_delim.left_type == DELIM_NONE) ? 0 : delim_w;
+	int r_w = (n->data.auto_delim.right_type == DELIM_NONE) ? 0 : delim_w;
+
+	// node metrics
+	n->w = l_w + c_w + r_w;
+	n->asc = axis + (h / 2);
+	n->desc = (h / 2) - axis;
+}
+
 void tex_measure_node(Node* n, FontRole role)
 {
 	if (!n)
@@ -497,6 +540,9 @@ void tex_measure_node(Node* n, FontRole role)
 		break;
 	case N_MULTIOP:
 		measure_multiop(n, role);
+		break;
+	case N_AUTO_DELIM:
+		measure_auto_delim(n, role);
 		break;
 	default:
 		TEX_ASSERT(0 && "Unknown NodeType in tex_measure_node");

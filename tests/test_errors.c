@@ -6,6 +6,8 @@
 #include "tex/tex_internal.h"
 
 static int g_fail = 0;
+static TeX_Renderer* g_renderer = NULL;
+
 static void expect(int cond, const char* msg)
 {
 	if (!cond)
@@ -54,7 +56,7 @@ static void test_malformed_math_draws(void)
 	TeX_Layout* L1 = tex_format(buf1, 120, &cfg);
 	expect(L1 != NULL, "layout returned for malformed math");
 	tex_draw_log_reset();
-	tex_draw(L1, 0, 0, 0);
+	tex_draw(g_renderer, L1, 0, 0, 0);
 	expect(tex_draw_log_count() >= 0, "draw did not crash on malformed input");
 	tex_free(L1);
 }
@@ -82,7 +84,7 @@ static void test_deep_recursion_guard(void)
 	TeX_Layout* L = tex_format(buf, 160, &cfg);
 	expect(L != NULL, "layout returned for deep nesting");
 	tex_draw_log_reset();
-	tex_draw(L, 0, 0, 0);
+	tex_draw(g_renderer, L, 0, 0, 0);
 	expect(tex_draw_log_count() >= 0, "draw did not crash on deep nesting");
 	tex_free(L);
 }
@@ -110,10 +112,20 @@ static void test_height_clamp(void)
 
 int main(void)
 {
+	g_renderer = tex_renderer_create();
+	if (!g_renderer)
+	{
+		fprintf(stderr, "Failed to create renderer\n");
+		return 1;
+	}
+
 	test_invalid_inputs();
 	test_malformed_math_draws();
 	test_deep_recursion_guard();
 	test_height_clamp();
+
+	tex_renderer_destroy(g_renderer);
+
 	if (g_fail == 0)
 	{
 		printf("test_errors: PASS\n");

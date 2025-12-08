@@ -26,6 +26,12 @@ typedef struct
 
 void arena_init(TexArena* a);
 
+// Initialize arena with a single fixed-size slab (no chunk growth for render slab)
+void arena_init_slab(TexArena* a, size_t slab_size);
+
+// Reset arena to initial state (resets offset, keeps first chunk, frees extras)
+void arena_reset(TexArena* a);
+
 void* arena_alloc(TexArena* a, size_t size, size_t align);
 
 // Free all chunks and reset arena

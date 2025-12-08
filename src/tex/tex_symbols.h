@@ -12,7 +12,8 @@ typedef enum
 	SYM_FUNC,
 	SYM_ACCENT,
 	SYM_SPACE,
-	SYM_MULTIOP
+	SYM_MULTIOP,
+	SYM_DELIM_MOD
 } SymbolKind;
 
 typedef struct

@@ -60,6 +60,7 @@ set(TEX_CORE_SOURCES
   src/tex/tex_parse.c
   src/tex/tex_measure.c
   src/tex/tex_layout.c
+  src/tex/tex_renderer.c
   src/tex/tex_draw.c
 )
 

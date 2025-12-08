@@ -44,6 +44,50 @@ void arena_init(TexArena* a)
 	a->total_allocated = sizeof(TexArenaChunk) - TEX_ARENA_CHUNK_SIZE + c->capacity;
 }
 
+void arena_init_slab(TexArena* a, size_t slab_size)
+{
+	if (!a)
+		return;
+	memset(a, 0, sizeof(*a));
+
+	size_t alloc_size = sizeof(TexArenaChunk) - TEX_ARENA_CHUNK_SIZE + slab_size;
+	TEX_TRACE("Attempting slab malloc of %u bytes... ", (unsigned int)alloc_size);
+	TexArenaChunk* c = (TexArenaChunk*)malloc(alloc_size);
+	if (!c)
+	{
+		TEX_TRACE("%s", "FAILED!");
+		a->failed = 1;
+		return;
+	}
+	TEX_TRACE("Success. (Ptr: %p)", (void*)c);
+	c->next = NULL;
+	c->used = 0;
+	c->capacity = slab_size;
+
+	a->first = a->current = c;
+	a->total_allocated = alloc_size;
+}
+
+void arena_reset(TexArena* a)
+{
+	if (!a || !a->first)
+		return;
+
+	TexArenaChunk* c = a->first->next;
+	while (c)
+	{
+		TexArenaChunk* next = c->next;
+		free(c);
+		c = next;
+	}
+
+	a->first->next = NULL;
+	a->first->used = 0;
+	a->current = a->first;
+	a->total_allocated = sizeof(TexArenaChunk) - TEX_ARENA_CHUNK_SIZE + a->first->capacity;
+	a->failed = 0;
+}
+
 void* arena_alloc(TexArena* a, size_t size, size_t align)
 {
 	if (!a || a->failed)

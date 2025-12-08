@@ -2,9 +2,15 @@
 #ifndef TEX_TEX_H
 #define TEX_TEX_H
 
+#include <stddef.h>
 #include "tex_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct TeX_Layout TeX_Layout;
+typedef struct TeX_Renderer TeX_Renderer;
 
 
 // Parse input, calculate layout, return handle
@@ -15,8 +21,18 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config);
 // Total rendered height in pixels (for scrollbar sizing)
 int tex_get_total_height(TeX_Layout* layout);
 
+// Create a renderer with default slab size (40KB)
+TeX_Renderer* tex_renderer_create(void);
+
+// Create a renderer with custom slab size
+TeX_Renderer* tex_renderer_create_sized(size_t slab_size);
+
+// Destroy renderer and free slab
+void tex_renderer_destroy(TeX_Renderer* r);
+
 // Draw document slice to current draw buffer
-void tex_draw(TeX_Layout* layout, int x, int y, int scroll_y);
+// Uses windowed rendering: only parses visible portion + padding
+void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y);
 
 // Free all resources
 void tex_free(TeX_Layout* layout);
@@ -41,5 +57,8 @@ void tex_draw_set_fonts(void* main, void* script);
 #endif
 #endif
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TEX_TEX_H

@@ -45,6 +45,10 @@
 #define TEX_BIGOP_OVERLAP 2
 #define TEX_MULTIOP_KERN 1
 
+#define TEX_DELIM_WIDTH_FACTOR 4
+#define TEX_DELIM_MIN_WIDTH 4
+#define TEX_DELIM_MAX_WIDTH 10
+
 
 // decorative braces height (vertical extent of the brace shape)
 #define TEX_BRACE_HEIGHT 4
@@ -69,7 +73,8 @@ typedef enum
 	N_OVERLAY,
 	N_SPANDECO,
 	N_FUNC_LIM,
-	N_MULTIOP
+	N_MULTIOP,
+	N_AUTO_DELIM
 } NodeType;
 
 typedef enum
@@ -96,6 +101,18 @@ typedef enum
 	DECO_OVERBRACE = 3,
 	DECO_UNDERBRACE = 4
 } DecoType;
+
+typedef enum
+{
+	DELIM_NONE = 0,
+	DELIM_PAREN,
+	DELIM_BRACKET,
+	DELIM_BRACE,
+	DELIM_VERT,
+	DELIM_ANGLE,
+	DELIM_FLOOR,
+	DELIM_CEIL
+} DelimType;
 
 typedef struct TexStringView
 {
@@ -154,6 +171,13 @@ typedef struct Node
 			uint8_t count; // number of operators (2 for \iint, 3 for \iiint, etc)
 			uint8_t op_type; // MultiOpType
 		} multiop;
+		struct
+		{
+			struct Node* content;
+			uint8_t left_type; // DelimType
+			uint8_t right_type; // DelimType
+			int16_t delim_h; // cached symmetric height
+		} auto_delim;
 
 	} data;
 } Node;
@@ -185,6 +209,17 @@ typedef struct
 } TexErrorState;
 
 // ==================================
+// Checkpoint for Sparse Indexing
+// ==================================
+#define TEX_CHECKPOINT_INTERVAL 200 // pixels between checkpoints
+
+typedef struct
+{
+	int y_pos; // Vertical pixel coordinate at line start
+	const char* src_ptr; // Pointer into source buffer at this line
+} TeX_Checkpoint;
+
+// ==================================
 // Layout Structure
 // ==================================
 typedef struct TeX_Layout
@@ -200,15 +235,16 @@ typedef struct TeX_Layout
 
 	int width;
 	int total_height;
-	TeX_Line* lines;
-	TeX_Line** line_index;
-	int line_count;
-	TexArena arena;
-	Node* root;
+
+	// source buffer pointer (immutable after format)
+	const char* source;
+
+	TeX_Checkpoint* checkpoints;
+	int checkpoint_count;
+	int checkpoint_capacity;
 
 	// Error state
 	TexErrorState error;
-
 
 #if TEX_DEBUG
 	unsigned debug_flags;

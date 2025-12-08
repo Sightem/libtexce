@@ -28,6 +28,7 @@ set(TEX_CORE_SOURCES
   ${TEX_ROOT}/src/tex/tex_parse.c
   ${TEX_ROOT}/src/tex/tex_measure.c
   ${TEX_ROOT}/src/tex/tex_layout.c
+  ${TEX_ROOT}/src/tex/tex_renderer.c
   ${TEX_ROOT}/src/tex/tex_draw.c
 )
 
@@ -56,7 +57,7 @@ cedev_add_program(
   DESCRIPTION "CE demo: TeX renderer (scrollable text)"
 
   SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/demo_text.c
+    ${CMAKE_CURRENT_LIST_DIR}/demo_text.cpp
     ${TEX_CORE_SOURCES}
 
   INCLUDE_DIRECTORIES

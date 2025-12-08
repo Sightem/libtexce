@@ -22,8 +22,8 @@ static void test_arena_alloc_basic(void)
 	void* p1 = arena_alloc(&A, 16, 8);
 	void* p2 = arena_alloc(&A, 16, 8);
 	expect(p1 && p2, "arena allocations succeeded");
-	// Oversized request should fail (> chunk size)
-	void* p3 = arena_alloc(&A, TEX_ARENA_CHUNK_SIZE + 1, 8);
+	// Oversized request should fail (>4096 byte hard limit)
+	void* p3 = arena_alloc(&A, 4097, 8);
 	expect(p3 == NULL, "oversized allocation returns NULL");
 	expect(A.failed != 0, "arena failed flag set after oversized alloc");
 }

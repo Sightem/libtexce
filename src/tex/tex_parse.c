@@ -41,7 +41,8 @@ typedef struct
 {
 	MLex lx;
 	int depth;
-	TeX_Layout* L; // provides both arena access and error reporting
+	TexArena* arena; // explicit arena for node allocation
+	TeX_Layout* L; // for error reporting only
 } Parser;
 
 
@@ -52,7 +53,7 @@ static Node* new_node(Parser* p, NodeType t)
 	if (TEX_HAS_ERROR(p->L))
 		return NULL;
 
-	Node* n = (Node*)arena_alloc(&p->L->arena, sizeof(Node), sizeof(void*));
+	Node* n = (Node*)arena_alloc(p->arena, sizeof(Node), sizeof(void*));
 	if (!n)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_OOM, "Failed to allocate parse node", 0);
@@ -180,9 +181,11 @@ static MToken ml_peek(MLex* lx)
 	return ml_next(&tmp);
 }
 
+static Node* parse_list_core(Parser* p, int stop_on_right);
 static Node* parse_math_list(Parser* p);
 static Node* parse_atom(Parser* p);
 static Node* parse_command(Parser* p, const char* name, int len);
+static Node* parse_auto_delim(Parser* p);
 
 static Node* wrap_group(Parser* p, Node* head)
 {
@@ -568,6 +571,96 @@ static Node* parse_script_arg(Parser* p)
 	return parse_atom_noscript(p);
 }
 
+static DelimType parse_delim_type(Parser* p)
+{
+	MToken t = ml_next(&p->lx);
+	if (t.kind == M_CHAR)
+	{
+		switch (*t.start)
+		{
+		case '(':
+		case ')':
+			return DELIM_PAREN;
+		case '[':
+		case ']':
+			return DELIM_BRACKET;
+		case '|':
+			return DELIM_VERT;
+		case '.':
+			return DELIM_NONE;
+		default:
+			break;
+		}
+	}
+	else if (t.kind == M_LBRACKET || t.kind == M_RBRACKET)
+	{
+		return DELIM_BRACKET;
+	}
+	else if (t.kind == M_CMD)
+	{
+		if (t.len == 1 && (*t.start == '{' || *t.start == '}'))
+			return DELIM_BRACE;
+		if (t.len == 4 && strncmp(t.start, "vert", 4) == 0)
+			return DELIM_VERT;
+		if (t.len == 5)
+		{
+			if (strncmp(t.start, "lceil", 5) == 0 || strncmp(t.start, "rceil", 5) == 0)
+				return DELIM_CEIL;
+		}
+		else if (t.len == 6)
+		{
+			switch (*t.start)
+			{
+			case 'l':
+				if (strncmp(t.start, "lbrace", 6) == 0)
+					return DELIM_BRACE;
+				if (strncmp(t.start, "langle", 6) == 0)
+					return DELIM_ANGLE;
+				if (strncmp(t.start, "lfloor", 6) == 0)
+					return DELIM_FLOOR;
+				break;
+			case 'r':
+				if (strncmp(t.start, "rbrace", 6) == 0)
+					return DELIM_BRACE;
+				if (strncmp(t.start, "rangle", 6) == 0)
+					return DELIM_ANGLE;
+				if (strncmp(t.start, "rfloor", 6) == 0)
+					return DELIM_FLOOR;
+				break;
+			}
+		}
+	}
+	return DELIM_NONE;
+}
+
+// parse \left <delim> ... \right <delim> construct
+static Node* parse_auto_delim(Parser* p)
+{
+	DelimType l_type = parse_delim_type(p);
+
+	Node* content = parse_list_core(p, 1);
+
+	MToken t = ml_peek(&p->lx);
+	if (t.kind == M_CMD && t.len == 5 && strncmp(t.start, "right", 5) == 0)
+	{
+		ml_next(&p->lx);
+	}
+	else
+	{
+		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unbalanced \\left - missing \\right", 0);
+		return NULL;
+	}
+
+	DelimType r_type = parse_delim_type(p);
+
+	Node* n = new_node(p, N_AUTO_DELIM);
+	if (!n)
+		return NULL;
+	n->data.auto_delim.content = content;
+	n->data.auto_delim.left_type = (uint8_t)l_type;
+	n->data.auto_delim.right_type = (uint8_t)r_type;
+	return n;
+}
 
 static const struct
 {
@@ -664,7 +757,7 @@ static Node* parse_text_arg(Parser* p)
 	{
 		// allocate persistent storage in Arena
 		int ulen = tex_util_unescaped_len(start, raw_len);
-		char* buf = (char*)arena_alloc(&p->L->arena, (size_t)ulen + 1U, 1);
+		char* buf = (char*)arena_alloc(p->arena, (size_t)ulen + 1U, 1);
 		if (!buf)
 		{
 			TEX_SET_ERROR(p->L, TEX_ERR_OOM, "OOM parsing \\text", 0);
@@ -905,6 +998,16 @@ static Node* parse_command(Parser* p, const char* name, int len)
 
 			return make_multiop(p, count, op_type);
 		}
+	case SYM_DELIM_MOD:
+		{
+			if (len == 4 && strncmp(name, "left", 4) == 0)
+			{
+				return parse_auto_delim(p);
+			}
+			// Orphan \right is an error
+			TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unexpected \\right without \\left", 0);
+			return NULL;
+		}
 	default:
 		break;
 	}
@@ -955,7 +1058,7 @@ static Node* parse_atom(Parser* p)
 	return NULL;
 }
 
-static Node* parse_math_list(Parser* p)
+static Node* parse_list_core(Parser* p, int stop_on_right)
 {
 	Node* head = NULL;
 	Node* tail = NULL;
@@ -968,6 +1071,9 @@ static Node* parse_math_list(Parser* p)
 	{
 		MToken pk = ml_peek(&p->lx);
 		if (pk.kind == M_EOF || pk.kind == M_RBRACE)
+			break;
+		// Stop when we encounter \right (if stop_on_right is set)
+		if (stop_on_right && pk.kind == M_CMD && pk.len == 5 && strncmp(pk.start, "right", 5) == 0)
 			break;
 		if (TEX_HAS_ERROR(p->L))
 			break;
@@ -1044,14 +1150,17 @@ static Node* parse_math_list(Parser* p)
 	return head;
 }
 
-Node* tex_parse_math(const char* input, int len, TeX_Layout* layout)
+static Node* parse_math_list(Parser* p) { return parse_list_core(p, 0); }
+
+Node* tex_parse_math(const char* input, int len, TexArena* arena, TeX_Layout* layout)
 {
-	if (!layout)
+	if (!arena)
 		return NULL;
 
 	if (!input)
 	{
-		TEX_SET_ERROR(layout, TEX_ERR_INPUT, "NULL input to math parser", 0);
+		if (layout)
+			TEX_SET_ERROR(layout, TEX_ERR_INPUT, "NULL input to math parser", 0);
 		return NULL;
 	}
 	if (len < 0)
@@ -1060,6 +1169,7 @@ Node* tex_parse_math(const char* input, int len, TeX_Layout* layout)
 	Parser p;
 	ml_init(&p.lx, input, len);
 	p.depth = 0;
+	p.arena = arena;
 	p.L = layout;
 
 	Node* seq = parse_math_list(&p);

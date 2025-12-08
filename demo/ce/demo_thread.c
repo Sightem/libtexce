@@ -78,6 +78,14 @@ int main(void)
 	tex_draw_set_fonts(f_main, f_script);
 	fontlib_SetTransparency(true);
 
+	// Create one shared renderer for all messages (stateless mode)
+	TeX_Renderer* renderer = tex_renderer_create();
+	if (!renderer)
+	{
+		gfx_End();
+		return 1;
+	}
+
 	TeX_Config cfg = { .color_fg = 0, .color_bg = 255, .font_pack = "TeXFonts" };
 
 	const int screen_w = GFX_LCD_WIDTH - 20;
@@ -156,7 +164,7 @@ int main(void)
 			gfx_SetColor(0);
 
 			// Draw TeX content
-			tex_draw(m->layout, draw_x, content_y, 0);
+			tex_draw(renderer, m->layout, draw_x, content_y, 0);
 		}
 
 
@@ -173,7 +181,8 @@ int main(void)
 		gfx_SwapDraw();
 	}
 
-	// Cleanup: Free BOTH layout and the source buffer
+	// Cleanup: Free renderer, layouts, and source buffers
+	tex_renderer_destroy(renderer);
 	for (int i = 0; i < msg_count; i++)
 	{
 		tex_free(thread[i].layout);

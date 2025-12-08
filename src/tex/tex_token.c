@@ -1,19 +1,20 @@
 #include "tex_token.h"
 #include <string.h>
+#include "tex_arena.h"
 #include "tex_internal.h"
 #include "tex_util.h"
 
-static const char* find_math_end(const char* start, int is_display)
+static const char* find_math_end(const char* start, const char* end, int is_display)
 {
 	const char* p = start;
 	if (!p)
 		return NULL;
 
-	while (*p)
+	while (p < end && *p)
 	{
 		if (*p == '\\')
 		{
-			if (*(p + 1))
+			if (p + 1 < end && *(p + 1))
 				p += 2;
 			else
 				break;
@@ -23,7 +24,7 @@ static const char* find_math_end(const char* start, int is_display)
 		{
 			if (is_display)
 			{
-				if (*(p + 1) == '$')
+				if (p + 1 < end && *(p + 1) == '$')
 					return p;
 			}
 			else
@@ -36,171 +37,167 @@ static const char* find_math_end(const char* start, int is_display)
 	return NULL;
 }
 
-// push a token into the output array
-// returns 0 on success, -1 on overflow (error set on layout)
-static int push_token(TeX_Token* out, int max, int* count, TeX_Layout* L, TokenType type, const char* start, int len)
+void tex_stream_init(TeX_Stream* s, const char* input, int len)
 {
-	int idx = *count;
+	TEX_ASSERT(s != NULL && "tex_stream_init called with NULL stream");
+	if (!s)
+		return;
 
-	if (out && idx >= max)
+	s->cursor = input ? input : "";
+	if (len < 0 && input)
 	{
-		TEX_SET_ERROR(L, TEX_ERR_INPUT, "Token buffer overflow", idx);
-		return -1;
+		s->end = input + strlen(input);
 	}
-
-	if (out && idx < max)
+	else if (input)
 	{
-		out[idx].type = type;
-		out[idx].start = start;
-		out[idx].len = len;
-		out[idx].aux = 0;
+		s->end = input + len;
 	}
-
-	*count = idx + 1;
-	return 0;
+	else
+	{
+		s->end = s->cursor;
+	}
 }
 
-// emit a text like token, handling escape sequences
-// returns 0 on success, -1 on error (error set on layout)
-static int emit_text_token(TeX_Token* out, int max, int* count, TeX_Layout* L, TokenType type, const char* s,
-                           int raw_len, int counting_only)
+// fill token with unescaped text
+// returns 0 on success, -1 on error
+static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int raw_len, TexArena* arena,
+                           TeX_Layout* layout)
 {
-	int need = tex_util_unescaped_len(s, raw_len);
+	int unescaped_len = tex_util_unescaped_len(s, raw_len);
 
-	// pass 1 (counting) or no escapes needed, direct push
-	if (counting_only || need == raw_len)
+	if (unescaped_len == raw_len || !arena)
 	{
-		return push_token(out, max, count, L, type, s, need);
+		out->type = type;
+		out->start = s;
+		out->len = unescaped_len;
+		out->aux = 0;
+		return 0;
 	}
 
-	// need to allocate and unescape
-	char* buf = (char*)arena_alloc(&L->arena, (size_t)need + 1, 1);
+	char* buf = (char*)arena_alloc(arena, (size_t)unescaped_len + 1, 1);
 	if (!buf)
 	{
-		TEX_SET_ERROR(L, TEX_ERR_OOM, "Failed to allocate unescaped token", need);
+		if (layout)
+		{
+			TEX_SET_ERROR(layout, TEX_ERR_OOM, "Failed to allocate unescaped token", unescaped_len);
+		}
 		return -1;
 	}
 
 	tex_util_copy_unescaped(buf, s, raw_len);
-	return push_token(out, max, count, L, type, buf, need);
+	out->type = type;
+	out->start = buf;
+	out->len = unescaped_len;
+	out->aux = 0;
+	return 0;
 }
 
-int tex_tokenize_top_level(const char* input, TeX_Token* out_tokens, int max_tokens, TeX_Layout* layout)
+int tex_stream_next(TeX_Stream* s, TeX_Token* out, TexArena* arena, TeX_Layout* layout)
 {
-	TEX_ASSERT(input != NULL && "tex_tokenize_top_level called with NULL input");
+	TEX_ASSERT(s != NULL && "tex_stream_next called with NULL stream");
+	TEX_ASSERT(out != NULL && "tex_stream_next called with NULL out token");
 
-	if (!input)
+	if (!s || !out)
+		return 0;
+
+	if (s->cursor >= s->end || !*s->cursor)
 	{
-		if (layout)
-			TEX_SET_ERROR(layout, TEX_ERR_INPUT, "NULL input to tokenizer", 0);
-		return -1;
+		out->type = T_EOF;
+		out->start = s->cursor;
+		out->len = 0;
+		out->aux = 0;
+		return 0;
 	}
 
-	if (!layout)
+	const char* p = s->cursor;
+
+	// Newline
+	if (*p == '\n')
 	{
-		return -1; // cannot proceed without layout for error reporting / arena
+		out->type = T_NEWLINE;
+		out->start = p;
+		out->len = 1;
+		out->aux = 0;
+		s->cursor = p + 1;
+		return 1;
 	}
 
-	int total = 0;
-	const char* p = input;
-	const int counting_only = (out_tokens == NULL);
-
-	while (*p)
+	// Space run
+	if (*p == ' ')
 	{
-		// check for prior error (from push_token or emit_text_token)
-		if (TEX_HAS_ERROR(layout))
-		{
-			return -1;
-		}
-
-		if (*p == '\n')
-		{
-			if (push_token(out_tokens, max_tokens, &total, layout, T_NEWLINE, p, 1) < 0)
-			{
-				return -1;
-			}
+		const char* start = p;
+		while (p < s->end && *p == ' ')
 			++p;
-		}
-		else if (*p == ' ')
-		{
-			const char* s = p;
-			while (*p == ' ')
-				++p;
-			if (push_token(out_tokens, max_tokens, &total, layout, T_SPACE, s, (int)(p - s)) < 0)
-			{
-				return -1;
-			}
-		}
-		else if (*p == '$')
-		{
-			int is_display = 0;
-			const char* after_open = p + 1;
-			if (*after_open == '$')
-			{
-				is_display = 1;
-				after_open = p + 2;
-			}
+		out->type = T_SPACE;
+		out->start = start;
+		out->len = (int)(p - start);
+		out->aux = 0;
+		s->cursor = p;
+		return 1;
+	}
 
-			const char* close = find_math_end(after_open, is_display);
-			if (close)
-			{
-				int raw_len = (int)(close - after_open);
-				TokenType tt = is_display ? T_MATH_DISPLAY : T_MATH_INLINE;
-				if (emit_text_token(out_tokens, max_tokens, &total, layout, tt, after_open, raw_len, counting_only) < 0)
-				{
-					return -1;
-				}
-				p = close + (is_display ? 2 : 1);
-			}
-			else
-			{
-				// unclosed math delimiter: treat '$' as starting a text run
-				const char* s = p;
-				++p;
-				while (*p && *p != ' ' && *p != '\n' && *p != '$')
-				{
-					if (*p == '\\' && *(p + 1) && tex_util_is_escape_char(*(p + 1)))
-						p += 2;
-					else
-						++p;
-				}
-				int raw_len = (int)(p - s);
-				if (emit_text_token(out_tokens, max_tokens, &total, layout, T_TEXT, s, raw_len, counting_only) < 0)
-				{
-					return -1;
-				}
-			}
+	// Math mode
+	if (*p == '$')
+	{
+		int is_display = 0;
+		const char* after_open = p + 1;
+		if (after_open < s->end && *after_open == '$')
+		{
+			is_display = 1;
+			after_open = p + 2;
+		}
+
+		const char* close = find_math_end(after_open, s->end, is_display);
+		if (close)
+		{
+			int raw_len = (int)(close - after_open);
+			TokenType tt = is_display ? T_MATH_DISPLAY : T_MATH_INLINE;
+			// math content passes through verbatim, math parser handles its own escapes
+			out->type = tt;
+			out->start = after_open;
+			out->len = raw_len;
+			out->aux = 0;
+			s->cursor = close + (is_display ? 2 : 1);
+			return 1;
 		}
 		else
 		{
-			// plain text run (stop on space/newline or math start)
-			const char* s = p;
-			while (*p && *p != ' ' && *p != '\n' && *p != '$')
+			// unclosed math: treat '$' as starting a text run
+			const char* start = p;
+			++p;
+			while (p < s->end && *p && *p != ' ' && *p != '\n' && *p != '$')
 			{
-				if (*p == '\\' && *(p + 1) && tex_util_is_escape_char(*(p + 1)))
+				if (*p == '\\' && p + 1 < s->end && *(p + 1) && tex_util_is_escape_char(*(p + 1)))
 					p += 2;
 				else
 					++p;
 			}
-			int raw_len = (int)(p - s);
-			if (emit_text_token(out_tokens, max_tokens, &total, layout, T_TEXT, s, raw_len, counting_only) < 0)
+			int raw_len = (int)(p - start);
+			if (fill_text_token(out, T_TEXT, start, raw_len, arena, layout) < 0)
 			{
-				return -1;
+				return 0;
 			}
+			s->cursor = p;
+			return 1;
 		}
 	}
 
-	// final error check before EOF token
-	if (TEX_HAS_ERROR(layout))
+	// plain text run
 	{
-		return -1;
+		const char* start = p;
+		while (p < s->end && *p && *p != ' ' && *p != '\n' && *p != '$')
+		{
+			if (*p == '\\' && p + 1 < s->end && *(p + 1) && tex_util_is_escape_char(*(p + 1)))
+				p += 2;
+			else
+				++p;
+		}
+		int raw_len = (int)(p - start);
+		if (fill_text_token(out, T_TEXT, start, raw_len, arena, layout) < 0)
+		{
+			return 0;
+		}
+		s->cursor = p;
+		return 1;
 	}
-
-	// always terminate with EOF
-	if (push_token(out_tokens, max_tokens, &total, layout, T_EOF, p, 0) < 0)
-	{
-		return -1;
-	}
-
-	return total;
 }
