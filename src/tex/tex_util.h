@@ -75,6 +75,22 @@ static inline void tex_trace_impl(const char* fmt, ...)
 	while (0)
 #endif
 
+// Safe coordinate assignment macro for Node fields (x, y, w, asc, desc).
+// In debug builds, asserts that the value fits in int16_t range.
+// In release builds, just casts directly for zero overhead.
+#if TEX_ENABLE_ASSERTS
+#define TEX_COORD_ASSIGN(dst, val)                                                                                     \
+	do                                                                                                                 \
+	{                                                                                                                  \
+		int _coord_val = (val);                                                                                        \
+		TEX_ASSERT(_coord_val >= -32768 && _coord_val <= 32767 && "Coordinate overflow: value out of int16_t range");  \
+		(dst) = (int16_t)_coord_val;                                                                                   \
+	}                                                                                                                  \
+	while (0)
+#else
+#define TEX_COORD_ASSIGN(dst, val) ((dst) = (int16_t)(val))
+#endif
+
 #define TEX_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define TEX_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define TEX_ABS(x) (((x) < 0) ? -(x) : (x))

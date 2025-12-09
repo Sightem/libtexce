@@ -122,9 +122,9 @@ typedef struct TexStringView
 
 typedef struct Node
 {
-	int x, y; // position (y can reach total_height ~10000)
-	int w; // width (can exceed screen width 320)
-	int asc, desc; // TODO: these can be smaller types?
+	int16_t x, y; // position (y can reach total_height ~20000, fits in int16_t)
+	int16_t w; // width (can exceed screen width 320, but fits in int16_t)
+	int16_t asc, desc; // ascender/descender heights
 	uint8_t type; // NodeType (13 values, fits in 4 bits even)
 	uint8_t flags;
 	struct Node* next;

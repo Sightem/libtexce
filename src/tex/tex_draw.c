@@ -984,9 +984,9 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 	TeX_Line* tail_line = NULL;
 	Node* cur_line_head = NULL;
 	Node* cur_line_tail = NULL;
-	int x_cursor = 0;
-	int line_asc = 0;
-	int line_desc = 0;
+	int16_t x_cursor = 0;
+	int16_t line_asc = 0;
+	int16_t line_desc = 0;
 	int current_y = y_start;
 	int pending_space = 0;
 	int line_count = 0;
@@ -1054,13 +1054,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 
 		case T_TEXT:
 			{
-				int text_w = tex_metrics_text_width_n(t.start, t.len, FONTROLE_MAIN);
-				int text_asc = tex_metrics_asc(FONTROLE_MAIN);
-				int text_desc = tex_metrics_desc(FONTROLE_MAIN);
+				int16_t text_w = tex_metrics_text_width_n(t.start, t.len, FONTROLE_MAIN);
+				int16_t text_asc = tex_metrics_asc(FONTROLE_MAIN);
+				int16_t text_desc = tex_metrics_desc(FONTROLE_MAIN);
 
 				if (pending_space && cur_line_head)
 				{
-					int space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
+					int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
 					// simple wrap check
 					if (x_cursor + space_w + text_w > layout->width && cur_line_head)
 					{
@@ -1109,8 +1109,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 								cur_line_head = sp;
 							cur_line_tail = sp;
 							x_cursor += space_w;
-							line_asc = TEX_MAX(line_asc, text_asc);
-							line_desc = TEX_MAX(line_desc, text_desc);
+							line_asc = (int16_t)TEX_MAX(line_asc, text_asc);
+							line_desc = (int16_t)TEX_MAX(line_desc, text_desc);
 						}
 					}
 				}
@@ -1134,8 +1134,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 						cur_line_head = n;
 					cur_line_tail = n;
 					x_cursor += text_w;
-					line_asc = TEX_MAX(line_asc, text_asc);
-					line_desc = TEX_MAX(line_desc, text_desc);
+					line_asc = (int16_t)TEX_MAX(line_asc, text_asc);
+					line_desc = (int16_t)TEX_MAX(line_desc, text_desc);
 				}
 			}
 			break;
@@ -1151,9 +1151,9 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					// handle pending space
 					if (pending_space && cur_line_head)
 					{
-						int space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
-						int space_asc = tex_metrics_asc(FONTROLE_MAIN);
-						int space_desc = tex_metrics_desc(FONTROLE_MAIN);
+						int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
+						int16_t space_asc = tex_metrics_asc(FONTROLE_MAIN);
+						int16_t space_desc = tex_metrics_desc(FONTROLE_MAIN);
 
 						if (x_cursor + space_w + n->w > layout->width && cur_line_head)
 						{
@@ -1201,8 +1201,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 									cur_line_head = sp;
 								cur_line_tail = sp;
 								x_cursor += space_w;
-								line_asc = TEX_MAX(line_asc, space_asc);
-								line_desc = TEX_MAX(line_desc, space_desc);
+								line_asc = (int16_t)TEX_MAX(line_asc, space_asc);
+								line_desc = (int16_t)TEX_MAX(line_desc, space_desc);
 							}
 						}
 					}
@@ -1243,8 +1243,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 						cur_line_head = n;
 					cur_line_tail = n;
 					x_cursor += n->w;
-					line_asc = TEX_MAX(line_asc, n->asc);
-					line_desc = TEX_MAX(line_desc, n->desc);
+					line_asc = (int16_t)TEX_MAX(line_asc, n->asc);
+					line_desc = (int16_t)TEX_MAX(line_desc, n->desc);
 				}
 				pending_space = 0;
 			}
@@ -1288,7 +1288,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					int cx = (layout->width - n->w) / 2;
 					if (cx < 0)
 						cx = 0;
-					n->x = cx;
+					TEX_COORD_ASSIGN(n->x, cx);
 
 					int h = n->asc + n->desc + TEX_LINE_LEADING;
 					TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));

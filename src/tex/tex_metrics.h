@@ -33,15 +33,15 @@ void tex_metrics_init(struct TeX_Layout* layout);
 // explicit reset to host constants (used by tests/host builds implicitly)
 void tex_metrics_reset(void);
 
-int tex_metrics_math_axis(void);
+int16_t tex_metrics_math_axis(void);
 
 // query per role metrics
-int tex_metrics_asc(FontRole role);
-int tex_metrics_desc(FontRole role);
+int16_t tex_metrics_asc(FontRole role);
+int16_t tex_metrics_desc(FontRole role);
 
 // measure text/glyph width for the given role
-int tex_metrics_text_width(const char* s, FontRole role);
-int tex_metrics_text_width_n(const char* s, int len, FontRole role);
-int tex_metrics_glyph_width(unsigned int glyph, FontRole role);
+int16_t tex_metrics_text_width(const char* s, FontRole role);
+int16_t tex_metrics_text_width_n(const char* s, int len, FontRole role);
+int16_t tex_metrics_glyph_width(unsigned int glyph, FontRole role);
 
 #endif // TEX_TEX_METRICS_H

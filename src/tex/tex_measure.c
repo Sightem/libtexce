@@ -50,11 +50,11 @@ static void measure_space(Node* n, FontRole role)
 	if (n->data.space.em_mul)
 	{
 		int em = tex_metrics_asc(role) + tex_metrics_desc(role);
-		n->w = n->data.space.em_mul * em;
+		TEX_COORD_ASSIGN(n->w, n->data.space.em_mul * em);
 	}
 	else
 	{
-		n->w = n->data.space.width;
+		TEX_COORD_ASSIGN(n->w, n->data.space.width);
 	}
 	n->asc = 0;
 	n->desc = 0;
@@ -65,9 +65,9 @@ static void measure_math(Node* n, FontRole role)
 	TEX_ASSERT(n != NULL && "measure_math called with NULL node");
 	int w = 0, asc = 0, desc = 0;
 	measure_list(n->child, role, &w, &asc, &desc);
-	n->w = w;
-	n->asc = asc;
-	n->desc = desc;
+	TEX_COORD_ASSIGN(n->w, w);
+	TEX_COORD_ASSIGN(n->asc, asc);
+	TEX_COORD_ASSIGN(n->desc, desc);
 }
 
 static void measure_script(Node* n, FontRole role)
@@ -101,7 +101,7 @@ static void measure_script(Node* n, FontRole role)
 		w_scripts = TEX_MAX(w_scripts, sub->w);
 	}
 
-	n->w = (base ? base->w : 0) + ((sub || sup) ? (pad + w_scripts) : 0);
+	TEX_COORD_ASSIGN(n->w, (base ? base->w : 0) + ((sub || sup) ? (pad + w_scripts) : 0));
 
 	// vertical extents
 	int base_asc = base ? base->asc : 0;
@@ -177,8 +177,8 @@ static void measure_script(Node* n, FontRole role)
 		}
 	}
 
-	n->asc = final_asc;
-	n->desc = final_desc;
+	TEX_COORD_ASSIGN(n->asc, final_asc);
+	TEX_COORD_ASSIGN(n->desc, final_desc);
 }
 
 static void measure_frac(Node* n, FontRole role)
@@ -204,14 +204,14 @@ static void measure_frac(Node* n, FontRole role)
 	int inner_w = TEX_MAX(num_w, den_w);
 
 	// include horizontal outer padding around the rule
-	n->w = inner_w + (2 * xpad) + (2 * TEX_FRAC_OUTER_PAD);
+	TEX_COORD_ASSIGN(n->w, inner_w + (2 * xpad) + (2 * TEX_FRAC_OUTER_PAD));
 
 	int num_h = (num ? (num->asc + num->desc) : 0);
 	int den_h = (den ? (den->asc + den->desc) : 0);
 
 	int axis = tex_metrics_math_axis();
-	n->asc = num_h + vpad + axis;
-	n->desc = den_h + vpad + rule - axis;
+	TEX_COORD_ASSIGN(n->asc, num_h + vpad + axis);
+	TEX_COORD_ASSIGN(n->desc, den_h + vpad + rule - axis);
 	if (n->desc < 0)
 	{
 		n->desc = 0;
@@ -254,7 +254,7 @@ static void measure_sqrt(Node* n, FontRole role)
 
 	// total width is the offset start of the radical + the radical's own width
 	// radical width = head + pad + radicand
-	n->w = idx_offset + head_w + pad + rad_w;
+	TEX_COORD_ASSIGN(n->w, idx_offset + head_w + pad + rad_w);
 
 	// vertical metrics
 	int asc_base = tex_metrics_asc(role);
@@ -270,8 +270,8 @@ static void measure_sqrt(Node* n, FontRole role)
 		base_asc = TEX_MAX(base_asc, idx_top_dist);
 	}
 
-	n->asc = base_asc;
-	n->desc = rad_desc;
+	TEX_COORD_ASSIGN(n->asc, base_asc);
+	TEX_COORD_ASSIGN(n->desc, rad_desc);
 }
 static int accent_height(uint8_t type)
 {
@@ -310,12 +310,12 @@ static void measure_overlay(Node* n, FontRole role)
 	{
 		// underline extends into descender region
 		n->asc = b ? b->asc : 0;
-		n->desc = (b ? b->desc : 0) + extra;
+		TEX_COORD_ASSIGN(n->desc, (b ? b->desc : 0) + extra);
 	}
 	else
 	{
 		// over accents extend ascender
-		n->asc = (b ? b->asc : 0) + extra;
+		TEX_COORD_ASSIGN(n->asc, (b ? b->asc : 0) + extra);
 		n->desc = b ? b->desc : 0;
 	}
 }
@@ -337,30 +337,30 @@ static void measure_spandeco(Node* n, FontRole role)
 	if (label && label->w > w)
 		w = label->w;
 
-	n->w = w;
+	TEX_COORD_ASSIGN(n->w, w);
 
 	if (n->data.spandeco.deco_type == DECO_OVERBRACE)
 	{
 		int label_h = label ? (label->asc + label->desc + gap) : 0;
-		n->asc = (content ? content->asc : 0) + gap + bh + label_h;
+		TEX_COORD_ASSIGN(n->asc, (content ? content->asc : 0) + gap + bh + label_h);
 		n->desc = content ? content->desc : 0;
 	}
 	else if (n->data.spandeco.deco_type == DECO_UNDERBRACE)
 	{
 		int label_h = label ? (label->asc + label->desc + gap) : 0;
 		n->asc = content ? content->asc : 0;
-		n->desc = (content ? content->desc : 0) + gap + bh + label_h;
+		TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + gap + bh + label_h);
 	}
 	else if (n->data.spandeco.deco_type == DECO_OVERLINE)
 	{
 		// neither of these are currently produced by parser
-		n->asc = (content ? content->asc : 0) + gap + 1;
+		TEX_COORD_ASSIGN(n->asc, (content ? content->asc : 0) + gap + 1);
 		n->desc = content ? content->desc : 0;
 	}
 	else if (n->data.spandeco.deco_type == DECO_UNDERLINE)
 	{
 		n->asc = content ? content->asc : 0;
-		n->desc = (content ? content->desc : 0) + gap + 1;
+		TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + gap + 1);
 	}
 }
 
@@ -370,18 +370,18 @@ static void measure_func_lim(Node* n, FontRole role)
 	(void)role; // unused: lim always uses FONTROLE_MAIN
 
 	// measure "lim" text in main role
-	int lim_w = tex_metrics_text_width("lim", FONTROLE_MAIN);
-	int lim_asc = tex_metrics_asc(FONTROLE_MAIN);
-	int lim_desc = tex_metrics_desc(FONTROLE_MAIN);
+	int16_t lim_w = tex_metrics_text_width("lim", FONTROLE_MAIN);
+	int16_t lim_asc = tex_metrics_asc(FONTROLE_MAIN);
+	int16_t lim_desc = tex_metrics_desc(FONTROLE_MAIN);
 	Node* lim = n->data.func_lim.limit;
 	if (lim)
 	{
 		tex_measure_node(lim, FONTROLE_SCRIPT);
 	}
 	int lim_wid = lim ? lim->w : 0;
-	n->w = TEX_MAX(lim_w, lim_wid);
+	TEX_COORD_ASSIGN(n->w, TEX_MAX(lim_w, lim_wid));
 	n->asc = lim_asc;
-	n->desc = lim_desc + (lim ? (TEX_FRAC_YPAD + lim->asc + lim->desc) : 0);
+	TEX_COORD_ASSIGN(n->desc, lim_desc + (lim ? (TEX_FRAC_YPAD + lim->asc + lim->desc) : 0));
 }
 
 static void measure_list(Node* head, FontRole role, int* out_w, int* out_asc, int* out_desc)
@@ -443,7 +443,7 @@ static void measure_multiop(Node* n, FontRole role)
 	int kern = TEX_MULTIOP_KERN;
 
 	// total width: count glyphs + (count-1) kern spaces
-	n->w = count * glyph_w + (count - 1) * kern;
+	TEX_COORD_ASSIGN(n->w, count * glyph_w + (count - 1) * kern);
 
 	// height matches single integral
 	n->asc = tex_metrics_asc(effective_role);
@@ -488,9 +488,9 @@ static void measure_auto_delim(Node* n, FontRole role)
 	int r_w = (n->data.auto_delim.right_type == DELIM_NONE) ? 0 : delim_w;
 
 	// node metrics
-	n->w = l_w + c_w + r_w;
-	n->asc = axis + (h / 2);
-	n->desc = (h / 2) - axis;
+	TEX_COORD_ASSIGN(n->w, l_w + c_w + r_w);
+	TEX_COORD_ASSIGN(n->asc, axis + (h / 2));
+	TEX_COORD_ASSIGN(n->desc, (h / 2) - axis);
 }
 
 void tex_measure_node(Node* n, FontRole role)

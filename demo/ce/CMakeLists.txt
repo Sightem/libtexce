@@ -72,8 +72,8 @@ cedev_add_program(
     ${TEX_COMPILE_DEFS}
 
   LINKER_GLOBALS
-    "range .bss $D28000 : $D37FFE"
-    "provide __stack = $D37FFF"
+    "range .bss $D052C6 : $D13FD8"
+    "provide __stack = $D052C6"
     "locate .header at $D1A87F"
 )
 

@@ -10,8 +10,8 @@
 
 typedef struct
 {
-	int main_asc, main_desc;
-	int script_asc, script_desc;
+	int16_t main_asc, main_desc;
+	int16_t script_asc, script_desc;
 #ifdef TEX_USE_FONTLIB
 	fontlib_font_t* mf;
 	fontlib_font_t* sf;
@@ -31,10 +31,10 @@ void tex_metrics_reset(void)
 #endif
 }
 
-int tex_metrics_math_axis(void)
+int16_t tex_metrics_math_axis(void)
 {
 #ifdef TEX_USE_FONTLIB
-	return g_state.mf ? g_state.mf->x_height : 0;
+	return g_state.mf ? (int16_t)g_state.mf->x_height : 0;
 #else
 	return 0;
 #endif
@@ -52,10 +52,10 @@ void tex_metrics_init(struct TeX_Layout* layout)
 
 	if (result)
 	{
-		g_state.main_asc = fh.main_baseline;
-		g_state.main_desc = fh.main_height - fh.main_baseline;
-		g_state.script_asc = fh.script_baseline;
-		g_state.script_desc = fh.script_height - fh.script_baseline;
+		g_state.main_asc = (int16_t)fh.main_baseline;
+		g_state.main_desc = (int16_t)(fh.main_height - fh.main_baseline);
+		g_state.script_asc = (int16_t)fh.script_baseline;
+		g_state.script_desc = (int16_t)(fh.script_height - fh.script_baseline);
 #ifdef TEX_USE_FONTLIB
 		g_state.mf = (fontlib_font_t*)fh.main_font;
 		g_state.sf = (fontlib_font_t*)fh.script_font;
@@ -74,12 +74,12 @@ void tex_metrics_init(struct TeX_Layout* layout)
 	}
 }
 
-int tex_metrics_asc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_asc : g_state.main_asc; }
+int16_t tex_metrics_asc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_asc : g_state.main_asc; }
 
-int tex_metrics_desc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_desc : g_state.main_desc; }
+int16_t tex_metrics_desc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_desc : g_state.main_desc; }
 
 
-int tex_metrics_text_width(const char* s, FontRole role)
+int16_t tex_metrics_text_width(const char* s, FontRole role)
 {
 #ifdef TEX_USE_FONTLIB
 	if (g_state.use_fontlib && g_state.mf && g_state.sf)
@@ -102,8 +102,7 @@ int tex_metrics_text_width(const char* s, FontRole role)
 #endif
 			g_state.current_role = role;
 		}
-		unsigned int w = fontlib_GetStringWidth(s ? s : "");
-		return (w > (unsigned int)INT_MAX) ? INT_MAX : (int)w;
+		return (int16_t)fontlib_GetStringWidth(s ? s : "");
 	}
 #endif
 	(void)s;
@@ -111,7 +110,7 @@ int tex_metrics_text_width(const char* s, FontRole role)
 	return 0;
 }
 
-int tex_metrics_text_width_n(const char* s, int len, FontRole role)
+int16_t tex_metrics_text_width_n(const char* s, int len, FontRole role)
 {
 #ifdef TEX_USE_FONTLIB
 	if (g_state.use_fontlib && g_state.mf && g_state.sf)
@@ -130,7 +129,7 @@ int tex_metrics_text_width_n(const char* s, int len, FontRole role)
 			return 0;
 
 
-		return (int)fontlib_GetStringWidthL(s, (size_t)len);
+		return (int16_t)fontlib_GetStringWidthL(s, (size_t)len);
 	}
 #endif
 	(void)role;
@@ -139,7 +138,7 @@ int tex_metrics_text_width_n(const char* s, int len, FontRole role)
 	return 0;
 }
 
-int tex_metrics_glyph_width(unsigned int glyph, FontRole role)
+int16_t tex_metrics_glyph_width(unsigned int glyph, FontRole role)
 {
 #ifdef TEX_USE_FONTLIB
 	if (g_state.use_fontlib && g_state.mf && g_state.sf)
@@ -163,10 +162,9 @@ int tex_metrics_glyph_width(unsigned int glyph, FontRole role)
 		char old_first = fontlib_GetFirstPrintableCodePoint();
 		fontlib_SetFirstPrintableCodePoint((char)0x01);
 
-		unsigned int w = fontlib_GetStringWidth(ch);
-
+		int16_t result = (int16_t)fontlib_GetStringWidth(ch);
 		fontlib_SetFirstPrintableCodePoint(old_first);
-		return (w > (unsigned int)INT_MAX) ? INT_MAX : (int)w;
+		return result;
 	}
 #endif
 	(void)glyph;
