@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "tex_arena.h"
+#include "tex_pool.h"
 #include "tex_types.h"
 
 // ==================================
@@ -55,6 +55,10 @@
 
 #define TEX_PARSE_MAX_DEPTH 32
 #define TEX_MAX_TOTAL_HEIGHT 20000
+
+// Node.flags constants
+#define TEX_FLAG_MATHF_DISPLAY 0x01 // Display-mode math (centered)
+#define TEX_FLAG_SCRIPT 0x02 // Node measured with script role
 
 // ==================================
 // Node Types
@@ -114,73 +118,87 @@ typedef enum
 	DELIM_CEIL
 } DelimType;
 
-typedef struct TexStringView
-{
-	const char* ptr;
-	int len;
-} TexStringView;
-
 typedef struct Node
 {
-	int16_t x, y; // position (y can reach total_height ~20000, fits in int16_t)
-	int16_t w; // width (can exceed screen width 320, but fits in int16_t)
+	int16_t x, y; // position (y can reach total_height ~20000)
+	int16_t w; // width
 	int16_t asc, desc; // ascender/descender heights
-	uint8_t type; // NodeType (13 values, fits in 4 bits even)
+	uint8_t type; // NodeType
 	uint8_t flags;
-	struct Node* next;
-	struct Node* child;
+	NodeRef next; // index to next sibling (NODE_NULL if none)
+	NodeRef child; // index to first child (NODE_NULL if none)
 	union
 	{
-		TexStringView text;
+		struct
+		{
+			StringId sid; // offset to string data in pool
+			uint16_t len; // string length
+		} text;
 		uint16_t glyph;
 		struct
 		{
-			int width;
+			int16_t width;
 			uint8_t em_mul;
 		} space;
 		struct
 		{
-			struct Node *num, *den;
+			NodeRef num, den;
 		} frac;
 		struct
 		{
-			struct Node* rad; // radicand (content under the radical)
-			struct Node* index; // optional root index (NULL for square root)
+			NodeRef rad; // radicand (content under the radical)
+			NodeRef index; // optional root index (NODE_NULL for square root)
 		} sqrt;
 		struct
 		{
-			struct Node *base, *sub, *sup;
+			NodeRef base, sub, sup;
 		} script;
 		struct
 		{
-			struct Node* base;
+			NodeRef base;
 			uint8_t type;
 		} overlay;
 		struct
 		{
-			struct Node* content;
-			struct Node* label; // optional
+			NodeRef content;
+			NodeRef label; // optional (NODE_NULL if none)
 			uint8_t deco_type; // DecoType
 		} spandeco;
 		struct
 		{
-			struct Node* limit;
+			NodeRef limit;
 		} func_lim;
 		struct
 		{
-			uint8_t count; // number of operators (2 for \iint, 3 for \iiint, etc)
+			uint8_t count; // number of operators (2 for \iint, etc)
 			uint8_t op_type; // MultiOpType
 		} multiop;
 		struct
 		{
-			struct Node* content;
+			NodeRef content;
 			uint8_t left_type; // DelimType
 			uint8_t right_type; // DelimType
 			int16_t delim_h; // cached symmetric height
 		} auto_delim;
-
 	} data;
 } Node;
+
+// =======================================
+// Pool Accessors (inline, sizeof(Node) visible)
+// =======================================
+static inline Node* pool_get_node(UnifiedPool* pool, NodeRef ref)
+{
+	if (ref == NODE_NULL)
+		return NULL;
+	return (Node*)(pool->slab + ((size_t)ref * sizeof(Node)));
+}
+
+static inline const char* pool_get_string(UnifiedPool* pool, StringId id)
+{
+	if (id == STRING_NULL)
+		return "";
+	return (const char*)(pool->slab + id);
+}
 
 // =======================================
 // Line Structure
@@ -189,9 +207,9 @@ typedef struct TeX_Line
 {
 	int y;
 	int h;
-	Node* first;
+	NodeRef first; // index to first node in this line
 	int child_count;
-	struct TeX_Line* next;
+	struct TeX_Line* next; // kept for now, will be array in renderer
 } TeX_Line;
 
 // =======================================

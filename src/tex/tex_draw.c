@@ -11,6 +11,8 @@
 #include "tex_util.h"
 #include "texfont.h"
 
+static UnifiedPool* g_draw_pool = NULL;
+
 #ifdef TEX_DIRECT_RENDER
 
 #ifdef TEX_USE_FONTLIB
@@ -306,29 +308,32 @@ static void rec_draw_paren(int x, int y_center, int w, int h, int is_left)
 // Node draw routines
 // -------------------------
 static int g_axis_y = 0;
-static void draw_node(Node* n, int x, int baseline_y, FontRole role);
+static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role);
 
-static void draw_math_list(Node* head, int x, int baseline_y, FontRole role)
+static void draw_math_list(NodeRef head, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
-	int xc = x;
-	for (Node* it = head; it; it = it->next)
+	TexCoord cur_x = x;
+	for (NodeRef it = head; it != NODE_NULL;)
 	{
-		draw_node(it, xc, baseline_y, role);
-		xc += it->w;
+		Node* n = pool_get_node(g_draw_pool, it);
+		if (!n)
+			break;
+		draw_node(n, cur_x, baseline_y, role);
+		cur_x.v += n->w;
+		it = n->next;
 	}
 }
 
-
-static void draw_script(Node* n, int x, int baseline_y, FontRole role)
+static void draw_script(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
-	Node* base = n->data.script.base;
-	Node* sub = n->data.script.sub;
-	Node* sup = n->data.script.sup;
+	Node* base = pool_get_node(g_draw_pool, n->data.script.base);
+	Node* sub = pool_get_node(g_draw_pool, n->data.script.sub);
+	Node* sup = pool_get_node(g_draw_pool, n->data.script.sup);
 
 	if (base)
 		draw_node(base, x, baseline_y, role);
 
-	int x_scripts = x + (base ? base->w : 0) + TEX_SCRIPT_XPAD;
+	TexCoord script_x = { x.v + (base ? base->w : 0) + TEX_SCRIPT_XPAD };
 	int is_bigop = base && tex_node_is_big_operator(base);
 
 	// precalculate big operator vertical bounds using the math axis
@@ -341,11 +346,9 @@ static void draw_script(Node* n, int x, int baseline_y, FontRole role)
 		{
 			if (base->data.multiop.op_type == MULTIOP_INT)
 				op_bias = TEX_AXIS_BIAS_INTEGRAL;
-			// TODO: MULTIOP_OINT would also use INTEGRAL bias
 		}
 		else if (base->type == N_GLYPH)
 		{
-			// Single big-op glyphs: check character code
 			unsigned char g = (unsigned char)base->data.glyph;
 			if (g == (unsigned char)TEXFONT_INTEGRAL_CHAR)
 				op_bias = TEX_AXIS_BIAS_INTEGRAL;
@@ -361,81 +364,78 @@ static void draw_script(Node* n, int x, int baseline_y, FontRole role)
 		op_bot = axis + half;
 	}
 
-	// determine baselines for scripts
 	if (sup)
 	{
-		int sup_baseline;
+		TexBaseline sup_bl;
 		if (is_bigop)
 		{
-			// anchor bottom of superscript to top of operator
-			sup_baseline = (op_top + TEX_BIGOP_OVERLAP) - sup->desc;
+			sup_bl.v = (op_top + TEX_BIGOP_OVERLAP) - sup->desc;
 		}
 		else
 		{
 			int center_y;
 			if (base)
-				center_y = baseline_y + (base->desc - base->asc) / 2;
+				center_y = baseline_y.v + (base->desc - base->asc) / 2;
 			else
-				center_y = baseline_y - (tex_metrics_asc(role) / 2);
+				center_y = baseline_y.v - (tex_metrics_asc(role) / 2);
 
-			// place just above center
-			sup_baseline = center_y - sup->desc - 1;
+			sup_bl.v = center_y - sup->desc - 1;
 		}
-		draw_node(sup, x_scripts, sup_baseline, FONTROLE_SCRIPT);
+		draw_node(sup, script_x, sup_bl, FONTROLE_SCRIPT);
 	}
 
 	if (sub)
 	{
-		int sub_baseline;
+		TexBaseline sub_bl;
 		if (is_bigop)
 		{
-			sub_baseline = (op_bot - TEX_BIGOP_OVERLAP) + sub->asc;
+			sub_bl.v = (op_bot - TEX_BIGOP_OVERLAP) + sub->asc;
 		}
 		else
 		{
 			int center_y;
 			if (base)
-				center_y = baseline_y + (base->desc - base->asc) / 2;
+				center_y = baseline_y.v + (base->desc - base->asc) / 2;
 			else
-				center_y = baseline_y - (tex_metrics_asc(role) / 2);
+				center_y = baseline_y.v - (tex_metrics_asc(role) / 2);
 
-			sub_baseline = center_y + sub->asc + 1;
+			sub_bl.v = center_y + sub->asc + 1;
 		}
-		draw_node(sub, x_scripts, sub_baseline, FONTROLE_SCRIPT);
+		draw_node(sub, script_x, sub_bl, FONTROLE_SCRIPT);
 	}
 }
 
-static void draw_frac(Node* n, int x, int baseline_y)
+static void draw_frac(Node* n, TexCoord x, TexBaseline baseline_y)
 {
-	Node* num = n->data.frac.num;
-	Node* den = n->data.frac.den;
+	Node* num = pool_get_node(g_draw_pool, n->data.frac.num);
+	Node* den = pool_get_node(g_draw_pool, n->data.frac.den);
 
 	int axis = tex_metrics_math_axis();
-	int rule_y = baseline_y - axis;
+	int rule_y = baseline_y.v - axis;
 
-	int rule_x = x + TEX_FRAC_OUTER_PAD;
+	int rule_x = x.v + TEX_FRAC_OUTER_PAD;
 	int rule_w = n->w - (2 * TEX_FRAC_OUTER_PAD);
 
 	rec_rule(rule_x, rule_y, rule_w);
 
 	if (num)
 	{
-		int nx = x + (n->w - num->w) / 2;
-		int num_baseline = rule_y - TEX_FRAC_YPAD - num->desc;
-		draw_node(num, nx, num_baseline, FONTROLE_SCRIPT);
+		TexCoord num_x = { x.v + (n->w - num->w) / 2 };
+		TexBaseline num_bl = { rule_y - TEX_FRAC_YPAD - num->desc };
+		draw_node(num, num_x, num_bl, FONTROLE_SCRIPT);
 	}
 	if (den)
 	{
-		int dx = x + (n->w - den->w) / 2;
-		int den_baseline = rule_y + TEX_RULE_THICKNESS + TEX_FRAC_YPAD + den->asc;
-		draw_node(den, dx, den_baseline, FONTROLE_SCRIPT);
+		TexCoord den_x = { x.v + (n->w - den->w) / 2 };
+		TexBaseline den_bl = { rule_y + TEX_RULE_THICKNESS + TEX_FRAC_YPAD + den->asc };
+		draw_node(den, den_x, den_bl, FONTROLE_SCRIPT);
 	}
 }
 
-static void draw_sqrt(Node* n, int x, int baseline_y, FontRole role)
+static void draw_sqrt(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
-	Node* rad = n->data.sqrt.rad;
-	Node* idx = n->data.sqrt.index;
+	Node* rad = pool_get_node(g_draw_pool, n->data.sqrt.rad);
+	Node* idx = pool_get_node(g_draw_pool, n->data.sqrt.index);
 
 	int head_w = tex_metrics_glyph_width((unsigned char)TEXFONT_SQRT_HEAD_CHAR, role);
 
@@ -448,57 +448,48 @@ static void draw_sqrt(Node* n, int x, int baseline_y, FontRole role)
 			idx_offset = 0;
 	}
 
-	// position of radical head (shifted right to clear the index)
-	int head_x = x + idx_offset;
-	int head_y_top = baseline_y - tex_metrics_asc(role);
+	int head_x = x.v + idx_offset;
+	int head_y_top = baseline_y.v - tex_metrics_asc(role);
 	rec_glyph(head_x, head_y_top, (unsigned char)TEXFONT_SQRT_HEAD_CHAR, role);
 
-	// draw index if present
 	if (idx)
 	{
-		// index baseline is roughly halfway up the radical height to try to "tuck" it in
-		int idx_baseline = baseline_y - (tex_metrics_asc(role) / 2);
-		int idx_x = x; // left aligned with the bounding box
-		draw_node(idx, idx_x, idx_baseline, FONTROLE_SCRIPT);
+		TexCoord idx_x = { x.v };
+		TexBaseline idx_bl = { baseline_y.v - (tex_metrics_asc(role) / 2) };
+		draw_node(idx, idx_x, idx_bl, FONTROLE_SCRIPT);
 	}
 
-	// draw bar and radicand TODO: fix this
 	int bar_x = head_x + head_w + TEX_SQRT_HEAD_XPAD;
 	if (rad)
 	{
-		int bar_y = baseline_y - rad->asc - TEX_ACCENT_GAP;
+		int bar_y = baseline_y.v - rad->asc - TEX_ACCENT_GAP;
 
-		int width = (x + n->w) - bar_x;
+		int width = (x.v + n->w) - bar_x;
 		rec_line(bar_x, bar_y, bar_x + width, bar_y);
-		draw_node(rad, bar_x, baseline_y, role);
+		TexCoord rad_x = { bar_x };
+		draw_node(rad, rad_x, baseline_y, role);
 	}
 }
 
-
-static void draw_overlay(Node* n, int x, int baseline_y, FontRole role)
+static void draw_overlay(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
-	Node* b = n->data.overlay.base;
+	Node* b = pool_get_node(g_draw_pool, n->data.overlay.base);
 
-	// draw the base character first
 	if (b)
 		draw_node(b, x, baseline_y, role);
 
 	if (!b)
 		return;
 
-	// Y position just above the character's ascent + gap
-	int top = baseline_y - b->asc - TEX_ACCENT_GAP;
+	int top = baseline_y.v - b->asc - TEX_ACCENT_GAP;
 
 	switch (n->data.overlay.type)
 	{
 	case ACC_BAR:
 		{
 			int bar_y = top - 1;
-
 			int pad = (b->w > 2) ? 1 : 0;
-
-			// draw from left+pad to right-pad-1 for fencepost
-			rec_line(x + pad, bar_y, x + b->w - 1 - pad, bar_y);
+			rec_line(x.v + pad, bar_y, x.v + b->w - 1 - pad, bar_y);
 		}
 		break;
 
@@ -506,34 +497,30 @@ static void draw_overlay(Node* n, int x, int baseline_y, FontRole role)
 		{
 			int line_y = top - 1;
 			int pad = (b->w > 2) ? 1 : 0;
-			rec_line(x + pad, line_y, x + b->w - 1 - pad, line_y);
+			rec_line(x.v + pad, line_y, x.v + b->w - 1 - pad, line_y);
 		}
 		break;
 
 	case ACC_UNDERLINE:
 		{
-			int line_y = baseline_y + b->desc + TEX_ACCENT_GAP;
+			int line_y = baseline_y.v + b->desc + TEX_ACCENT_GAP;
 			int pad = (b->w > 2) ? 1 : 0;
-			rec_line(x + pad, line_y, x + b->w - 1 - pad, line_y);
+			rec_line(x.v + pad, line_y, x.v + b->w - 1 - pad, line_y);
 		}
 		break;
 
 	case ACC_DOT:
 		{
-			int cx = x + b->w / 2;
-			// draw dot slightly above the gap
+			int cx = x.v + b->w / 2;
 			rec_dot(cx, top - 1);
 		}
 		break;
 
 	case ACC_HAT:
 		{
-			int cx = x + b->w / 2;
-			int dy = 3; // height of the chevron
-
-			// left leg
+			int cx = x.v + b->w / 2;
+			int dy = 3;
 			rec_line(cx - dy, top, cx, top - dy);
-			// right leg
 			rec_line(cx, top - dy, cx + dy, top);
 		}
 		break;
@@ -541,15 +528,11 @@ static void draw_overlay(Node* n, int x, int baseline_y, FontRole role)
 	case ACC_VEC:
 		{
 			int len = TEX_MAX(5, b->w);
-
-			int x_end = x + b->w; // right edge of character
-			int x_start = x_end - len; // calculated left start point of arrow
+			int x_end = x.v + b->w;
+			int x_start = x_end - len;
 			int y = top - 2;
 
-			// draw shaft
 			rec_line(x_start, y, x_end, y);
-
-			// dx=3, dy=2 prevents the pixels from clumping into a blob at low res
 			rec_line(x_end - 3, y - 2, x_end, y);
 			rec_line(x_end - 3, y + 2, x_end, y);
 		}
@@ -557,15 +540,9 @@ static void draw_overlay(Node* n, int x, int baseline_y, FontRole role)
 
 	case ACC_DDOT:
 		{
-			int cx = x + b->w / 2;
-			// separate dots by 4px total (2px offset each way)
-			// rec_dot draws radius 1 (approx 3px diameter)
+			int cx = x.v + b->w / 2;
 			int sep = 2;
-
-			// draw left dot
 			rec_dot(cx - sep, top - 1);
-
-			// draw right dot
 			rec_dot(cx + sep, top - 1);
 		}
 		break;
@@ -581,7 +558,6 @@ static void draw_hbrace(int x, int y, int w, int is_over)
 		return;
 	if (w < 6)
 	{
-		// too small for a visible brace, fallback to short line
 		rec_line(x, y + (is_over ? (TEX_BRACE_HEIGHT - 2) : 1), x + w - 1, y + (is_over ? (TEX_BRACE_HEIGHT - 2) : 1));
 		return;
 	}
@@ -590,7 +566,6 @@ static void draw_hbrace(int x, int y, int w, int is_over)
 	int top_y = y;
 	if (is_over)
 	{
-		// arms down, y is top of brace box
 		int base_y = top_y + arm_h;
 		rec_line(x, base_y, mid - 2, base_y);
 		rec_line(mid - 2, base_y, mid, top_y);
@@ -599,7 +574,6 @@ static void draw_hbrace(int x, int y, int w, int is_over)
 	}
 	else
 	{
-		// arms up, y is baseline of arms
 		int base_y = y;
 		rec_line(x, base_y, mid - 2, base_y);
 		rec_line(mid - 2, base_y, mid, base_y + arm_h + (TEX_BRACE_HEIGHT - arm_h));
@@ -608,39 +582,39 @@ static void draw_hbrace(int x, int y, int w, int is_over)
 	}
 }
 
-static void draw_spandeco(Node* n, int x, int baseline_y, FontRole role)
+static void draw_spandeco(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
-	Node* content = n->data.spandeco.content;
-	Node* label = n->data.spandeco.label;
+	Node* content = pool_get_node(g_draw_pool, n->data.spandeco.content);
+	Node* label = pool_get_node(g_draw_pool, n->data.spandeco.label);
 	if (content)
 		draw_node(content, x, baseline_y, role);
 	int w = content ? content->w : 0;
 	int bh = TEX_BRACE_HEIGHT;
 	if (n->data.spandeco.deco_type == DECO_OVERBRACE)
 	{
-		int brace_y = baseline_y - (content ? content->asc : 0) - TEX_ACCENT_GAP - bh + 1; // y is top of brace box
-		draw_hbrace(x, brace_y, w, 1);
+		int brace_y = baseline_y.v - (content ? content->asc : 0) - TEX_ACCENT_GAP - bh + 1;
+		draw_hbrace(x.v, brace_y, w, 1);
 		if (label)
 		{
-			int lx = x + (w - label->w) / 2;
-			int label_baseline = brace_y - TEX_ACCENT_GAP - label->desc;
-			draw_node(label, lx, label_baseline, FONTROLE_SCRIPT);
+			TexCoord label_x = { x.v + (w - label->w) / 2 };
+			TexBaseline label_bl = { brace_y - TEX_ACCENT_GAP - label->desc };
+			draw_node(label, label_x, label_bl, FONTROLE_SCRIPT);
 		}
 	}
 	else if (n->data.spandeco.deco_type == DECO_UNDERBRACE)
 	{
-		int brace_y = baseline_y + (content ? content->desc : 0) + TEX_ACCENT_GAP; // y is baseline of arms
-		draw_hbrace(x, brace_y, w, 0);
+		int brace_y = baseline_y.v + (content ? content->desc : 0) + TEX_ACCENT_GAP;
+		draw_hbrace(x.v, brace_y, w, 0);
 		if (label)
 		{
-			int lx = x + (w - label->w) / 2;
-			int label_baseline = brace_y + bh + TEX_ACCENT_GAP + label->asc;
-			draw_node(label, lx, label_baseline, FONTROLE_SCRIPT);
+			TexCoord label_x = { x.v + (w - label->w) / 2 };
+			TexBaseline label_bl = { brace_y + bh + TEX_ACCENT_GAP + label->asc };
+			draw_node(label, label_x, label_bl, FONTROLE_SCRIPT);
 		}
 	}
 }
 
-static void draw_multiop(Node* n, int x)
+static void draw_multiop(Node* n, TexCoord x)
 {
 	if (!n)
 		return;
@@ -658,58 +632,50 @@ static void draw_multiop(Node* n, int x)
 	int bias = TEX_AXIS_BIAS_INTEGRAL;
 	int y_top = (g_axis_y + bias) - half;
 
-	int cur_x = x;
+	int cur_x = x.v;
 	for (uint8_t i = 0; i < count; i++)
 	{
 		rec_glyph(cur_x, y_top, (int)TEXFONT_INTEGRAL_CHAR, effective_role);
 		cur_x += glyph_w + kern;
 	}
 
-	// for contour integrals, draw a procedural ellipse centered on the operator group
 	if (n->data.multiop.op_type == MULTIOP_OINT)
 	{
-		// center of the entire multi-operator block
-		// use (w - 1) / 2 to bias left for even widths, correcting the 1px right shift
-		int cx = x + (n->w - 1) / 2;
-		// center Y aligns with the math axis + bias used for the integral glyphs
+		int cx = x.v + (n->w - 1) / 2;
 		int cy = g_axis_y + bias;
-
-		// Rx is half the total width (spanning all integrals)
 		int rx = n->w / 2;
-		// Ry is half the width of a single integral glyph (heuristic for oval shape)
 		int ry = glyph_w / 2;
-
 		rec_ellipse(cx, cy, rx, ry);
 	}
 }
 
-static void draw_func_lim(Node* n, int x, int baseline_y)
+static void draw_func_lim(Node* n, TexCoord x, TexBaseline baseline_y)
 {
-	// draw "lim" upright at baseline
-	int y_top = baseline_y - tex_metrics_asc(FONTROLE_MAIN);
-	rec_text(x, y_top, "lim", 3, FONTROLE_MAIN);
-	Node* lim = n->data.func_lim.limit;
+	int y_top = baseline_y.v - tex_metrics_asc(FONTROLE_MAIN);
+	rec_text(x.v, y_top, "lim", 3, FONTROLE_MAIN);
+	Node* lim = pool_get_node(g_draw_pool, n->data.func_lim.limit);
 	if (lim)
 	{
 		int lim_text_w = tex_metrics_text_width("lim", FONTROLE_MAIN);
-		int lx = x + (lim_text_w - lim->w) / 2;
-		int lim_baseline = baseline_y + TEX_FRAC_YPAD + TEX_RULE_THICKNESS + lim->asc;
-		draw_node(lim, lx, lim_baseline, FONTROLE_SCRIPT);
+		TexCoord lim_x = { x.v + (lim_text_w - lim->w) / 2 };
+		TexBaseline lim_bl = { baseline_y.v + TEX_FRAC_YPAD + TEX_RULE_THICKNESS + lim->asc };
+		draw_node(lim, lim_x, lim_bl, FONTROLE_SCRIPT);
 	}
 }
 
 static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_left)
 {
-	if (type == DELIM_NONE)
-		return;
+	int delim_w = h / TEX_DELIM_WIDTH_FACTOR;
+	delim_w = TEX_CLAMP(delim_w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH);
+	int w = delim_w;
 
-	int w = h / TEX_DELIM_WIDTH_FACTOR;
-	w = TEX_CLAMP(w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH);
-	int top = y_center - (h / 2);
-	int bot = y_center + (h / 2);
+	int top = y_center - h / 2;
+	int bot = y_center + h / 2;
 
 	switch (type)
 	{
+	case DELIM_NONE:
+		break;
 	case DELIM_PAREN:
 		rec_draw_paren(x, y_center, w, h, is_left);
 		break;
@@ -729,58 +695,29 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 		break;
 	case DELIM_BRACE:
 		{
-			// constructed of: horizontal line, leg, chevron, leg, horizontal line
-			int half_h = h / 2;
-			// height of the chevron part (beak) - scale with width but bound by height
-			// use w/2 to keep the chevron compact (roughly 90 deg tip) and legs long
-			int chev_dy = w / 2;
-			if (chev_dy < 3)
-				chev_dy = 3;
-			if (chev_dy > half_h)
-				chev_dy = half_h;
-
+			int mid = y_center;
+			int cusp = w / 3;
 			if (is_left)
 			{
-				// {
-				// spine is to the right
-				int spine_x = x + w / 2;
-
-				// top horizontal
-				rec_line(x + w - 1, top, spine_x, top);
-				// top leg
-				rec_line(spine_x, top, spine_x, y_center - chev_dy);
-				// chevron upper
-				rec_line(spine_x, y_center - chev_dy, x, y_center);
-				// chevron lower
-				rec_line(x, y_center, spine_x, y_center + chev_dy);
-				// bottom leg
-				rec_line(spine_x, y_center + chev_dy, spine_x, bot);
-				// bottom horizontal
-				rec_line(spine_x, bot, x + w - 1, bot);
+				rec_line(x + w - 1, top, x + cusp, top + (mid - top) / 2);
+				rec_line(x + cusp, top + (mid - top) / 2, x, mid);
+				rec_line(x, mid, x + cusp, mid + (bot - mid) / 2);
+				rec_line(x + cusp, mid + (bot - mid) / 2, x + w - 1, bot);
 			}
 			else
 			{
-				// }
-				// spine is to the left
-				int spine_x = x + (w - 1) / 2;
-
-				// top horizontal
-				rec_line(x, top, spine_x, top);
-				// top leg
-				rec_line(spine_x, top, spine_x, y_center - chev_dy);
-				// chevron upper
-				rec_line(spine_x, y_center - chev_dy, x + w - 1, y_center);
-				// chevron lower
-				rec_line(x + w - 1, y_center, spine_x, y_center + chev_dy);
-				// bottom leg
-				rec_line(spine_x, y_center + chev_dy, spine_x, bot);
-				// bottom horizontal
-				rec_line(spine_x, bot, x, bot);
+				rec_line(x, top, x + w - 1 - cusp, top + (mid - top) / 2);
+				rec_line(x + w - 1 - cusp, top + (mid - top) / 2, x + w - 1, mid);
+				rec_line(x + w - 1, mid, x + w - 1 - cusp, mid + (bot - mid) / 2);
+				rec_line(x + w - 1 - cusp, mid + (bot - mid) / 2, x, bot);
 			}
 		}
 		break;
 	case DELIM_VERT:
-		rec_line(x + w / 2, top, x + w / 2, bot);
+		{
+			int vx = is_left ? x : (x + w - 1);
+			rec_line(vx, top, vx, bot);
+		}
 		break;
 	case DELIM_ANGLE:
 		if (is_left)
@@ -823,11 +760,11 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 	}
 }
 
-static void draw_auto_delim(Node* n, int x, int baseline_y, FontRole role)
+static void draw_auto_delim(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
 	int h = n->data.auto_delim.delim_h;
 	int axis = tex_metrics_math_axis();
-	int y_center = baseline_y - axis;
+	int y_center = baseline_y.v - axis;
 
 	int delim_w = h / TEX_DELIM_WIDTH_FACTOR;
 	delim_w = TEX_CLAMP(delim_w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH);
@@ -836,22 +773,32 @@ static void draw_auto_delim(Node* n, int x, int baseline_y, FontRole role)
 	int r_w = (n->data.auto_delim.right_type == DELIM_NONE) ? 0 : delim_w;
 
 	if (l_w > 0)
-		draw_proc_delim(x, y_center, h, (DelimType)n->data.auto_delim.left_type, 1);
+		draw_proc_delim(x.v, y_center, h, (DelimType)n->data.auto_delim.left_type, 1);
 
-	if (n->data.auto_delim.content)
-		draw_math_list(n->data.auto_delim.content, x + l_w, baseline_y, role);
+	NodeRef content_ref = n->data.auto_delim.content;
+	if (content_ref != NODE_NULL)
+	{
+		TexCoord content_x = { x.v + l_w };
+		draw_math_list(content_ref, content_x, baseline_y, role);
+	}
 
 	if (r_w > 0)
 	{
 		int c_w = 0;
-		for (Node* it = n->data.auto_delim.content; it; it = it->next)
-			c_w += it->w;
-		int rx = x + l_w + c_w;
+		for (NodeRef it = content_ref; it != NODE_NULL;)
+		{
+			Node* cn = pool_get_node(g_draw_pool, it);
+			if (!cn)
+				break;
+			c_w += cn->w;
+			it = cn->next;
+		}
+		int rx = x.v + l_w + c_w;
 		draw_proc_delim(rx, y_center, h, (DelimType)n->data.auto_delim.right_type, 0);
 	}
 }
 
-static void draw_node(Node* n, int x, int baseline_y, FontRole role)
+static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
 	if (!n)
 		return;
@@ -859,21 +806,19 @@ static void draw_node(Node* n, int x, int baseline_y, FontRole role)
 	{
 	case N_TEXT:
 		{
-			int y_top = baseline_y - n->asc;
-			const char* s = n->data.text.ptr ? n->data.text.ptr : "";
+			int y_top = baseline_y.v - n->asc;
+			const char* s = pool_get_string(g_draw_pool, n->data.text.sid);
 			int len = n->data.text.len;
 			if (!s || len <= 0)
 			{
 				s = "";
 				len = 0;
 			}
-			rec_text(x, y_top, s, len, role);
+			rec_text(x.v, y_top, s, len, role);
 		}
 		break;
 	case N_GLYPH:
 		{
-			// big operators (integral, summation, product) always use main font to maintain legibility even in nested
-			// contexts like fractions
 			FontRole effective_role = role;
 			int is_bigop = tex_is_big_operator(n->data.glyph);
 			if (is_bigop)
@@ -889,17 +834,16 @@ static void draw_node(Node* n, int x, int baseline_y, FontRole role)
 				else if (g == (unsigned char)TEXFONT_PRODUCT_CHAR)
 					bias = TEX_AXIS_BIAS_PROD;
 				int y_top = (g_axis_y + bias) - half;
-				rec_glyph(x, y_top, (int)n->data.glyph, effective_role);
+				rec_glyph(x.v, y_top, (int)n->data.glyph, effective_role);
 			}
 			else
 			{
-				int y_top = baseline_y - n->asc;
-				rec_glyph(x, y_top, (int)n->data.glyph, effective_role);
+				int y_top = baseline_y.v - n->asc;
+				rec_glyph(x.v, y_top, (int)n->data.glyph, effective_role);
 			}
 		}
 		break;
 	case N_SPACE:
-		// nop, spacing is applied via measured width
 		break;
 	case N_MATH:
 		draw_math_list(n->child, x, baseline_y, role);
@@ -960,12 +904,9 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 	if (padded_bot > layout->total_height)
 		padded_bot = layout->total_height;
 
-	arena_reset(&r->arena);
-	r->visible_lines = NULL;
+	pool_reset(&r->pool);
 	r->line_count = 0;
-	r->line_index = NULL;
 
-	// find starting checkpoint
 	int cp_idx = find_checkpoint_index(layout, padded_top);
 	const char* src_start;
 	int y_start;
@@ -980,66 +921,58 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 		src_start = layout->source;
 		y_start = 0;
 	}
-	TeX_Line* head = NULL;
-	TeX_Line* tail_line = NULL;
-	Node* cur_line_head = NULL;
-	Node* cur_line_tail = NULL;
+
+	NodeRef cur_line_head = NODE_NULL;
+	NodeRef cur_line_tail = NODE_NULL;
 	int16_t x_cursor = 0;
 	int16_t line_asc = 0;
 	int16_t line_desc = 0;
 	int current_y = y_start;
 	int pending_space = 0;
-	int line_count = 0;
 
 	TeX_Stream stream;
 	tex_stream_init(&stream, src_start, -1);
 
 	TeX_Token t;
-	while (tex_stream_next(&stream, &t, &r->arena, layout))
+	while (tex_stream_next(&stream, &t, &r->pool, layout))
 	{
 		if (current_y >= padded_bot)
+			break;
+		if (r->line_count >= TEX_RENDERER_MAX_LINES)
 			break;
 
 		switch (t.type)
 		{
 		case T_NEWLINE:
 			{
-				// for blank lines (no content), set default font height
 				int eff_asc = line_asc;
 				int eff_desc = line_desc;
-				if (!cur_line_head && eff_asc == 0 && eff_desc == 0)
+				if (cur_line_head == NODE_NULL && eff_asc == 0 && eff_desc == 0)
 				{
 					eff_asc = tex_metrics_asc(FONTROLE_MAIN);
 					eff_desc = tex_metrics_desc(FONTROLE_MAIN);
 				}
 
-				// finalize current line only if there's content or metrics
-				if (cur_line_head || eff_asc > 0 || eff_desc > 0)
+				if (cur_line_head != NODE_NULL || eff_asc > 0 || eff_desc > 0)
 				{
 					int h = eff_asc + eff_desc + TEX_LINE_LEADING;
 					if (h <= 0)
 						h = 1;
 
-					TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-					if (ln)
+					if (r->line_count < TEX_RENDERER_MAX_LINES)
 					{
+						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
 						ln->first = cur_line_head;
 						ln->y = current_y;
 						ln->h = h;
 						ln->next = NULL;
-
-						if (tail_line)
-							tail_line->next = ln;
-						else
-							head = ln;
-						tail_line = ln;
-						line_count++;
+						r->line_count++;
 					}
 
 					current_y += h;
-					cur_line_head = NULL;
-					cur_line_tail = NULL;
+					cur_line_head = NODE_NULL;
+					cur_line_tail = NODE_NULL;
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
@@ -1058,287 +991,277 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 				int16_t text_asc = tex_metrics_asc(FONTROLE_MAIN);
 				int16_t text_desc = tex_metrics_desc(FONTROLE_MAIN);
 
-				if (pending_space && cur_line_head)
+				if (pending_space && cur_line_head != NODE_NULL)
 				{
 					int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
-					// simple wrap check
-					if (x_cursor + space_w + text_w > layout->width && cur_line_head)
+					if (x_cursor + space_w + text_w > layout->width && cur_line_head != NODE_NULL)
 					{
-						// finalize line before wrap
 						int h = line_asc + line_desc + TEX_LINE_LEADING;
 						if (h <= 0)
 							h = 1;
-						TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-						if (ln)
+						if (r->line_count < TEX_RENDERER_MAX_LINES)
 						{
+							TeX_Line* ln = &r->lines[r->line_count];
 							memset(ln, 0, sizeof(TeX_Line));
 							ln->first = cur_line_head;
 							ln->y = current_y;
 							ln->h = h;
-							if (tail_line)
-								tail_line->next = ln;
-							else
-								head = ln;
-							tail_line = ln;
-							line_count++;
+							r->line_count++;
 						}
 						current_y += h;
-						cur_line_head = NULL;
-						cur_line_tail = NULL;
+						cur_line_head = NODE_NULL;
+						cur_line_tail = NODE_NULL;
 						x_cursor = 0;
 						line_asc = 0;
 						line_desc = 0;
 					}
 					else
 					{
-						Node* sp = (Node*)arena_alloc(&r->arena, sizeof(Node), sizeof(void*));
-						if (sp)
+						NodeRef sp_ref = pool_alloc_node(&r->pool);
+						if (sp_ref != NODE_NULL)
 						{
-							memset(sp, 0, sizeof(Node));
+							Node* sp = pool_get_node(&r->pool, sp_ref);
 							sp->type = N_TEXT;
-							sp->data.text.ptr = " ";
+							StringId sid = pool_alloc_string(&r->pool, " ", 1);
+							sp->data.text.sid = sid;
 							sp->data.text.len = 1;
 							sp->w = space_w;
 							sp->asc = text_asc;
 							sp->desc = text_desc;
 							sp->x = x_cursor;
 
-							if (cur_line_tail)
-								cur_line_tail->next = sp;
+							if (cur_line_tail != NODE_NULL)
+							{
+								Node* tail = pool_get_node(&r->pool, cur_line_tail);
+								tail->next = sp_ref;
+							}
 							else
-								cur_line_head = sp;
-							cur_line_tail = sp;
-							x_cursor += space_w;
-							line_asc = (int16_t)TEX_MAX(line_asc, text_asc);
-							line_desc = (int16_t)TEX_MAX(line_desc, text_desc);
+							{
+								cur_line_head = sp_ref;
+							}
+							cur_line_tail = sp_ref;
+							x_cursor = (int16_t)(x_cursor + space_w);
+							line_asc = TEX_MAX(line_asc, text_asc);
+							line_desc = TEX_MAX(line_desc, text_desc);
 						}
 					}
 				}
 				pending_space = 0;
 
-				Node* n = (Node*)arena_alloc(&r->arena, sizeof(Node), sizeof(void*));
-				if (n)
+				if (x_cursor + text_w > layout->width && cur_line_head != NODE_NULL)
 				{
-					memset(n, 0, sizeof(Node));
-					n->type = N_TEXT;
-					n->data.text.ptr = t.start;
-					n->data.text.len = t.len;
-					n->w = text_w;
-					n->asc = text_asc;
-					n->desc = text_desc;
-					n->x = x_cursor;
+					int h = line_asc + line_desc + TEX_LINE_LEADING;
+					if (h <= 0)
+						h = 1;
+					if (r->line_count < TEX_RENDERER_MAX_LINES)
+					{
+						TeX_Line* ln = &r->lines[r->line_count];
+						memset(ln, 0, sizeof(TeX_Line));
+						ln->first = cur_line_head;
+						ln->y = current_y;
+						ln->h = h;
+						r->line_count++;
+					}
+					current_y += h;
+					cur_line_head = NODE_NULL;
+					cur_line_tail = NODE_NULL;
+					x_cursor = 0;
+					line_asc = 0;
+					line_desc = 0;
+				}
 
-					if (cur_line_tail)
-						cur_line_tail->next = n;
+				NodeRef node_ref = pool_alloc_node(&r->pool);
+				if (node_ref != NODE_NULL)
+				{
+					Node* node = pool_get_node(&r->pool, node_ref);
+					node->type = N_TEXT;
+					StringId sid = pool_alloc_string(&r->pool, t.start, (size_t)t.len);
+					node->data.text.sid = sid;
+					node->data.text.len = (uint16_t)t.len;
+					node->w = text_w;
+					node->asc = text_asc;
+					node->desc = text_desc;
+					node->x = x_cursor;
+
+					if (cur_line_tail != NODE_NULL)
+					{
+						Node* tail = pool_get_node(&r->pool, cur_line_tail);
+						tail->next = node_ref;
+					}
 					else
-						cur_line_head = n;
-					cur_line_tail = n;
-					x_cursor += text_w;
-					line_asc = (int16_t)TEX_MAX(line_asc, text_asc);
-					line_desc = (int16_t)TEX_MAX(line_desc, text_desc);
+					{
+						cur_line_head = node_ref;
+					}
+					cur_line_tail = node_ref;
+					x_cursor = (int16_t)(x_cursor + text_w);
+					line_asc = TEX_MAX(line_asc, text_asc);
+					line_desc = TEX_MAX(line_desc, text_desc);
 				}
 			}
 			break;
 
 		case T_MATH_INLINE:
 			{
-				Node* n = tex_parse_math(t.start, t.len, &r->arena, layout);
-				if (n)
+				NodeRef start_node = (NodeRef)r->pool.node_count;
+				NodeRef math_ref = tex_parse_math(t.start, t.len, &r->pool, layout);
+				if (math_ref != NODE_NULL)
 				{
-					n->flags &= ~0x01; // clear display flag
-					tex_measure_node(n, FONTROLE_MAIN);
+					Node* math = pool_get_node(&r->pool, math_ref);
+					tex_measure_range(&r->pool, start_node, (NodeRef)r->pool.node_count);
 
-					// handle pending space
-					if (pending_space && cur_line_head)
+					if (pending_space && cur_line_head != NODE_NULL)
 					{
 						int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
-						int16_t space_asc = tex_metrics_asc(FONTROLE_MAIN);
-						int16_t space_desc = tex_metrics_desc(FONTROLE_MAIN);
-
-						if (x_cursor + space_w + n->w > layout->width && cur_line_head)
+						if (x_cursor + space_w + math->w > layout->width && cur_line_head != NODE_NULL)
 						{
 							int h = line_asc + line_desc + TEX_LINE_LEADING;
 							if (h <= 0)
 								h = 1;
-							TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-							if (ln)
+							if (r->line_count < TEX_RENDERER_MAX_LINES)
 							{
+								TeX_Line* ln = &r->lines[r->line_count];
 								memset(ln, 0, sizeof(TeX_Line));
 								ln->first = cur_line_head;
 								ln->y = current_y;
 								ln->h = h;
-								if (tail_line)
-									tail_line->next = ln;
-								else
-									head = ln;
-								tail_line = ln;
-								line_count++;
+								r->line_count++;
 							}
 							current_y += h;
-							cur_line_head = NULL;
-							cur_line_tail = NULL;
+							cur_line_head = NODE_NULL;
+							cur_line_tail = NODE_NULL;
 							x_cursor = 0;
 							line_asc = 0;
 							line_desc = 0;
 						}
 						else
 						{
-							Node* sp = (Node*)arena_alloc(&r->arena, sizeof(Node), sizeof(void*));
-							if (sp)
-							{
-								memset(sp, 0, sizeof(Node));
-								sp->type = N_TEXT;
-								sp->data.text.ptr = " ";
-								sp->data.text.len = 1;
-								sp->w = space_w;
-								sp->asc = space_asc;
-								sp->desc = space_desc;
-								sp->x = x_cursor;
-
-								if (cur_line_tail)
-									cur_line_tail->next = sp;
-								else
-									cur_line_head = sp;
-								cur_line_tail = sp;
-								x_cursor += space_w;
-								line_asc = (int16_t)TEX_MAX(line_asc, space_asc);
-								line_desc = (int16_t)TEX_MAX(line_desc, space_desc);
-							}
+							x_cursor = (int16_t)(x_cursor + space_w);
 						}
 					}
+					pending_space = 0;
 
-					// wrap check for the math node itself (independent of pending space)
-					if (x_cursor + n->w > layout->width && cur_line_head)
+					if (x_cursor + math->w > layout->width && cur_line_head != NODE_NULL)
 					{
 						int h = line_asc + line_desc + TEX_LINE_LEADING;
 						if (h <= 0)
 							h = 1;
-						TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-						if (ln)
+						if (r->line_count < TEX_RENDERER_MAX_LINES)
 						{
+							TeX_Line* ln = &r->lines[r->line_count];
 							memset(ln, 0, sizeof(TeX_Line));
 							ln->first = cur_line_head;
 							ln->y = current_y;
 							ln->h = h;
-							if (tail_line)
-								tail_line->next = ln;
-							else
-								head = ln;
-							tail_line = ln;
-							line_count++;
+							r->line_count++;
 						}
 						current_y += h;
-						cur_line_head = NULL;
-						cur_line_tail = NULL;
+						cur_line_head = NODE_NULL;
+						cur_line_tail = NODE_NULL;
 						x_cursor = 0;
 						line_asc = 0;
 						line_desc = 0;
 					}
 
-					n->x = x_cursor;
-
-					if (cur_line_tail)
-						cur_line_tail->next = n;
+					math->x = x_cursor;
+					if (cur_line_tail != NODE_NULL)
+					{
+						Node* tail = pool_get_node(&r->pool, cur_line_tail);
+						tail->next = math_ref;
+					}
 					else
-						cur_line_head = n;
-					cur_line_tail = n;
-					x_cursor += n->w;
-					line_asc = (int16_t)TEX_MAX(line_asc, n->asc);
-					line_desc = (int16_t)TEX_MAX(line_desc, n->desc);
+					{
+						cur_line_head = math_ref;
+					}
+					cur_line_tail = math_ref;
+					x_cursor = (int16_t)(x_cursor + math->w);
+					line_asc = TEX_MAX(line_asc, math->asc);
+					line_desc = TEX_MAX(line_desc, math->desc);
 				}
-				pending_space = 0;
 			}
 			break;
 
 		case T_MATH_DISPLAY:
 			{
-				// finalize current line first
-				if (cur_line_head)
+				if (cur_line_head != NODE_NULL)
 				{
 					int h = line_asc + line_desc + TEX_LINE_LEADING;
 					if (h <= 0)
 						h = 1;
-					TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-					if (ln)
+					if (r->line_count < TEX_RENDERER_MAX_LINES)
 					{
+						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
 						ln->first = cur_line_head;
 						ln->y = current_y;
 						ln->h = h;
-						if (tail_line)
-							tail_line->next = ln;
-						else
-							head = ln;
-						tail_line = ln;
-						line_count++;
+						r->line_count++;
 					}
 					current_y += h;
-					cur_line_head = NULL;
-					cur_line_tail = NULL;
+					cur_line_head = NODE_NULL;
+					cur_line_tail = NODE_NULL;
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
 				}
 
-				Node* n = tex_parse_math(t.start, t.len, &r->arena, layout);
-				if (n)
+				NodeRef start_node = (NodeRef)r->pool.node_count;
+				NodeRef math_ref = tex_parse_math(t.start, t.len, &r->pool, layout);
+				if (math_ref != NODE_NULL)
 				{
-					n->flags |= 0x01; // display flag
-					tex_measure_node(n, FONTROLE_MAIN);
-					int cx = (layout->width - n->w) / 2;
-					if (cx < 0)
-						cx = 0;
-					TEX_COORD_ASSIGN(n->x, cx);
+					Node* math = pool_get_node(&r->pool, math_ref);
+					tex_measure_range(&r->pool, start_node, (NodeRef)r->pool.node_count);
 
-					int h = n->asc + n->desc + TEX_LINE_LEADING;
-					TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-					if (ln)
+					// Center display math
+					int16_t center_x = (int16_t)((layout->width - math->w) / 2);
+					if (center_x < 0)
+						center_x = 0;
+					math->x = center_x;
+					cur_line_head = math_ref;
+					cur_line_tail = math_ref;
+					line_asc = math->asc;
+					line_desc = math->desc;
+
+					int h = line_asc + line_desc + TEX_LINE_LEADING;
+					if (h <= 0)
+						h = 1;
+					if (r->line_count < TEX_RENDERER_MAX_LINES)
 					{
+						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
-						ln->first = n;
+						ln->first = cur_line_head;
 						ln->y = current_y;
 						ln->h = h;
-						if (tail_line)
-							tail_line->next = ln;
-						else
-							head = ln;
-						tail_line = ln;
-						line_count++;
+						r->line_count++;
 					}
 					current_y += h;
+					cur_line_head = NODE_NULL;
+					cur_line_tail = NODE_NULL;
+					x_cursor = 0;
+					line_asc = 0;
+					line_desc = 0;
 				}
 				pending_space = 0;
 			}
 			break;
 
-		default:
+		case T_EOF:
 			break;
 		}
 	}
 
-	// finalize any remaining line
-	if (cur_line_head)
+	if (cur_line_head != NODE_NULL && r->line_count < TEX_RENDERER_MAX_LINES)
 	{
 		int h = line_asc + line_desc + TEX_LINE_LEADING;
 		if (h <= 0)
 			h = 1;
-		TeX_Line* ln = (TeX_Line*)arena_alloc(&r->arena, sizeof(TeX_Line), sizeof(void*));
-		if (ln)
-		{
-			memset(ln, 0, sizeof(TeX_Line));
-			ln->first = cur_line_head;
-			ln->y = current_y;
-			ln->h = h;
-			if (tail_line)
-				tail_line->next = ln;
-			else
-				head = ln;
-			line_count++;
-		}
+		TeX_Line* ln = &r->lines[r->line_count];
+		memset(ln, 0, sizeof(TeX_Line));
+		ln->first = cur_line_head;
+		ln->y = current_y;
+		ln->h = h;
+		r->line_count++;
 	}
 
-	r->visible_lines = head;
-	r->line_count = line_count;
 	r->window_y_start = padded_top;
 	r->window_y_end = padded_bot;
 	r->cached_layout = layout;
@@ -1364,17 +1287,15 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 
 	if (!hit)
 	{
-		// miss: rehydrate the visible slice
 		rehydrate_window(r, layout, scroll_y);
 	}
 
-	// draw from renderer's visible lines
-	TeX_Line* lines_to_draw = r->visible_lines;
+	// pool context for draw functions
+	g_draw_pool = &r->pool;
 
-	// since rehydrate_window already filtered to visible lines within the padded window, just iterate through them. the
-	// perline screen position check handles viewport culling
-	for (TeX_Line* ln = lines_to_draw; ln; ln = ln->next)
+	for (int i = 0; i < r->line_count; i++)
 	{
+		TeX_Line* ln = &r->lines[i];
 		int line_screen_top = y + (ln->y - scroll_y);
 		int line_screen_bot = line_screen_top + ln->h;
 
@@ -1385,23 +1306,33 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 
 		int line_asc = 0;
 		int line_desc = 0;
-		for (Node* it = ln->first; it; it = it->next)
+		for (NodeRef it = ln->first; it != NODE_NULL;)
 		{
-			line_asc = TEX_MAX(line_asc, it->asc);
-			line_desc = TEX_MAX(line_desc, it->desc);
+			Node* n = pool_get_node(g_draw_pool, it);
+			if (!n)
+				break;
+			line_asc = TEX_MAX(line_asc, n->asc);
+			line_desc = TEX_MAX(line_desc, n->desc);
+			it = n->next;
 		}
-		int baseline_y = line_screen_top + line_asc;
+		int baseline = line_screen_top + line_asc;
+		TexBaseline baseline_y = { baseline };
 
-		g_axis_y = baseline_y - tex_metrics_math_axis();
+		g_axis_y = baseline - tex_metrics_math_axis();
 
-		for (Node* it = ln->first; it; it = it->next)
+		for (NodeRef it = ln->first; it != NODE_NULL;)
 		{
-			int node_x = x + it->x;
-			draw_node(it, node_x, baseline_y, FONTROLE_MAIN);
+			Node* n = pool_get_node(g_draw_pool, it);
+			if (!n)
+				break;
+			TexCoord node_x = { x + n->x };
+			draw_node(n, node_x, baseline_y, FONTROLE_MAIN);
+			it = n->next;
 		}
 
-		// the visible_lines linked list is a subset of layout->lines, so we need to stop when we exit the window
 		if (r->cached_layout && ln->y + ln->h > r->window_y_end)
 			break;
 	}
+
+	g_draw_pool = NULL;
 }

@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include "tex.h"
-#include "tex_arena.h"
 #include "tex_internal.h"
 #include "tex_measure.h"
 #include "tex_metrics.h"
@@ -10,13 +9,13 @@
 #include "tex_token.h"
 #include "tex_util.h"
 
-// flags for Node.flags used locally for N_MATH style
-#define MATHF_DISPLAY 0x01
+// default scratch pool size for dryrun math measurement
+#define TEX_LAYOUT_SCRATCH_SIZE ((size_t)8 * 1024)
 
 typedef struct
 {
 	TeX_Layout* L;
-	TexArena scratch; // temporary arena for measuring math blocks
+	UnifiedPool scratch; // temporary pool for measuring math blocks
 	int x_cursor;
 	int line_asc;
 	int line_desc;
@@ -63,8 +62,6 @@ static void finalize_line(DryRunState* S)
 	int h = S->line_asc + S->line_desc + TEX_LINE_LEADING;
 	if (h <= 0)
 		h = 1;
-
-	// TEX_TRACE("Layout Line: y=%d h=%d", S->L->total_height, h);
 
 	if (S->L->total_height < TEX_MAX_TOTAL_HEIGHT - h)
 	{
@@ -133,10 +130,9 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 	st.width = width;
 	st.stream_cursor = input;
 
-	arena_init(&st.scratch);
-	if (st.scratch.failed)
+	if (pool_init(&st.scratch, TEX_LAYOUT_SCRATCH_SIZE) != 0)
 	{
-		TEX_SET_ERROR(L, TEX_ERR_OOM, "Failed to initialize scratch arena", 0);
+		TEX_SET_ERROR(L, TEX_ERR_OOM, "Failed to initialize scratch pool", 0);
 		free(L);
 		return NULL;
 	}
@@ -159,12 +155,12 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 				st.line_desc = tex_metrics_desc(FONTROLE_MAIN);
 			}
 			finalize_line(&st);
-			arena_reset(&st.scratch);
+			pool_reset(&st.scratch);
 			break;
 
 		case T_SPACE:
 			st.pending_space = 1;
-			arena_reset(&st.scratch);
+			pool_reset(&st.scratch);
 			break;
 
 		case T_TEXT:
@@ -194,16 +190,18 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 				add_content(&st, text_w, text_asc, text_desc);
 			}
 
-			arena_reset(&st.scratch);
+			pool_reset(&st.scratch);
 			break;
 
 		case T_MATH_INLINE:
 			{
-				Node* n = tex_parse_math(t.start, t.len, &st.scratch, L);
-				if (n)
+				NodeRef start_node = (NodeRef)st.scratch.node_count;
+				NodeRef ref = tex_parse_math(t.start, t.len, &st.scratch, L);
+				if (ref != NODE_NULL)
 				{
-					n->flags &= ~MATHF_DISPLAY;
-					tex_measure_node(n, FONTROLE_MAIN);
+					Node* n = pool_get_node(&st.scratch, ref);
+					n->flags &= (uint8_t)~TEX_FLAG_MATHF_DISPLAY;
+					tex_measure_range(&st.scratch, start_node, (NodeRef)st.scratch.node_count);
 
 					if (st.pending_space && st.has_content)
 					{
@@ -225,7 +223,7 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 					}
 					add_content(&st, n->w, n->asc, n->desc);
 				}
-				arena_reset(&st.scratch);
+				pool_reset(&st.scratch);
 			}
 			break;
 
@@ -233,26 +231,28 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 			{
 				finalize_line(&st);
 
-				Node* n = tex_parse_math(t.start, t.len, &st.scratch, L);
-				if (n)
+				NodeRef start_node = (NodeRef)st.scratch.node_count;
+				NodeRef ref = tex_parse_math(t.start, t.len, &st.scratch, L);
+				if (ref != NODE_NULL)
 				{
-					n->flags |= MATHF_DISPLAY;
-					tex_measure_node(n, FONTROLE_MAIN);
+					Node* n = pool_get_node(&st.scratch, ref);
+					n->flags |= TEX_FLAG_MATHF_DISPLAY;
+					tex_measure_range(&st.scratch, start_node, (NodeRef)st.scratch.node_count);
 					add_content(&st, n->w, n->asc, n->desc);
 					finalize_line(&st);
 				}
-				arena_reset(&st.scratch);
+				pool_reset(&st.scratch);
 			}
 			break;
 
-		default:
+		case T_EOF:
 			break;
 		}
 	}
 
 	finalize_line(&st);
 
-	arena_free_all(&st.scratch);
+	pool_free(&st.scratch);
 
 	return L;
 }

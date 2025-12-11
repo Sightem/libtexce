@@ -52,7 +52,7 @@ endif()
 # ---------------------------------------------------------------------------
 set(TEX_CORE_SOURCES
   src/tex/tex_util.c
-  src/tex/tex_arena.c
+  src/tex/tex_pool.c
   src/tex/tex_symbols.c
   src/tex/tex_metrics.c
   src/tex/tex_fonts.c
@@ -80,9 +80,9 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
   add_executable(test_measure tests/test_measure.c $<TARGET_OBJECTS:tex_core>)
   add_executable(test_layout tests/test_layout.c $<TARGET_OBJECTS:tex_core>)
   add_executable(test_draw tests/test_draw.c $<TARGET_OBJECTS:tex_core>)
-  add_executable(test_arena tests/test_arena.c $<TARGET_OBJECTS:tex_core>)
   add_executable(test_symbols tests/test_symbols.c $<TARGET_OBJECTS:tex_core>)
   add_executable(test_errors tests/test_errors.c $<TARGET_OBJECTS:tex_core>)
+  add_executable(test_pool tests/test_pool.c $<TARGET_OBJECTS:tex_core>)
 
   set(_TEX_INC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -90,9 +90,20 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/tex
     ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
-  foreach(tgt IN ITEMS test_token test_parse test_measure test_layout test_draw test_arena test_symbols test_errors)
+  foreach(tgt IN ITEMS test_token test_parse test_measure test_layout test_draw test_symbols test_errors test_pool)
     target_include_directories(${tgt} PRIVATE ${_TEX_INC})
   endforeach()
+
+  # Register tests with CTest
+  enable_testing()
+  add_test(NAME token   COMMAND test_token)
+  add_test(NAME parse   COMMAND test_parse)
+  add_test(NAME measure COMMAND test_measure)
+  add_test(NAME layout  COMMAND test_layout)
+  add_test(NAME draw    COMMAND test_draw)
+  add_test(NAME symbols COMMAND test_symbols)
+  add_test(NAME errors  COMMAND test_errors)
+  add_test(NAME pool    COMMAND test_pool)
 
   add_custom_target(run_tests
     COMMAND $<TARGET_FILE:test_token>
@@ -100,9 +111,9 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
     COMMAND $<TARGET_FILE:test_measure>
     COMMAND $<TARGET_FILE:test_layout>
     COMMAND $<TARGET_FILE:test_draw>
-    COMMAND $<TARGET_FILE:test_arena>
     COMMAND $<TARGET_FILE:test_symbols>
     COMMAND $<TARGET_FILE:test_errors>
-    DEPENDS test_token test_parse test_measure test_layout test_draw test_arena test_symbols test_errors
+    COMMAND $<TARGET_FILE:test_pool>
+    DEPENDS test_token test_parse test_measure test_layout test_draw test_symbols test_errors test_pool
   )
 endif()

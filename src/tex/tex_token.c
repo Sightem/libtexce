@@ -1,6 +1,5 @@
 #include "tex_token.h"
 #include <string.h>
-#include "tex_arena.h"
 #include "tex_internal.h"
 #include "tex_util.h"
 
@@ -60,12 +59,12 @@ void tex_stream_init(TeX_Stream* s, const char* input, int len)
 
 // fill token with unescaped text
 // returns 0 on success, -1 on error
-static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int raw_len, TexArena* arena,
+static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int raw_len, UnifiedPool* pool,
                            TeX_Layout* layout)
 {
 	int unescaped_len = tex_util_unescaped_len(s, raw_len);
 
-	if (unescaped_len == raw_len || !arena)
+	if (unescaped_len == raw_len || !pool)
 	{
 		out->type = type;
 		out->start = s;
@@ -74,8 +73,8 @@ static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int ra
 		return 0;
 	}
 
-	char* buf = (char*)arena_alloc(arena, (size_t)unescaped_len + 1, 1);
-	if (!buf)
+	StringId sid = pool_alloc_string(pool, s, (size_t)raw_len);
+	if (sid == STRING_NULL)
 	{
 		if (layout)
 		{
@@ -84,7 +83,9 @@ static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int ra
 		return -1;
 	}
 
+	char* buf = (char*)(pool->slab + sid);
 	tex_util_copy_unescaped(buf, s, raw_len);
+
 	out->type = type;
 	out->start = buf;
 	out->len = unescaped_len;
@@ -92,7 +93,7 @@ static int fill_text_token(TeX_Token* out, TokenType type, const char* s, int ra
 	return 0;
 }
 
-int tex_stream_next(TeX_Stream* s, TeX_Token* out, TexArena* arena, TeX_Layout* layout)
+int tex_stream_next(TeX_Stream* s, TeX_Token* out, UnifiedPool* pool, TeX_Layout* layout)
 {
 	TEX_ASSERT(s != NULL && "tex_stream_next called with NULL stream");
 	TEX_ASSERT(out != NULL && "tex_stream_next called with NULL out token");
@@ -173,7 +174,7 @@ int tex_stream_next(TeX_Stream* s, TeX_Token* out, TexArena* arena, TeX_Layout* 
 					++p;
 			}
 			int raw_len = (int)(p - start);
-			if (fill_text_token(out, T_TEXT, start, raw_len, arena, layout) < 0)
+			if (fill_text_token(out, T_TEXT, start, raw_len, pool, layout) < 0)
 			{
 				return 0;
 			}
@@ -193,7 +194,7 @@ int tex_stream_next(TeX_Stream* s, TeX_Token* out, TexArena* arena, TeX_Layout* 
 				++p;
 		}
 		int raw_len = (int)(p - start);
-		if (fill_text_token(out, T_TEXT, start, raw_len, arena, layout) < 0)
+		if (fill_text_token(out, T_TEXT, start, raw_len, pool, layout) < 0)
 		{
 			return 0;
 		}

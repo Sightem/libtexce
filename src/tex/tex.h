@@ -37,6 +37,10 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y);
 // Free all resources
 void tex_free(TeX_Layout* layout);
 
+// Get renderer pool statistics (pass NULL for any stat you dont need)
+void tex_renderer_get_stats(TeX_Renderer* r, size_t* peak_used, size_t* capacity, size_t* alloc_count,
+                            size_t* reset_count);
+
 // Get error code from last operation
 TeX_Error tex_get_last_error(TeX_Layout* layout);
 

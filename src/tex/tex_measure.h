@@ -9,6 +9,7 @@ typedef enum
 	FONTROLE_SCRIPT = 1
 } FontRole;
 
-void tex_measure_node(Node* n, FontRole role);
+// Measure nodes in range [start, end) linearly, deriving role from TEX_FLAG_SCRIPT
+void tex_measure_range(UnifiedPool* pool, NodeRef start, NodeRef end);
 
 #endif // TEX_TEX_MEASURE_H

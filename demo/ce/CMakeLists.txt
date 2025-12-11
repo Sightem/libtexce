@@ -20,7 +20,7 @@ get_filename_component(TEX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 # Core engine sources (copied 1:1 from root list)
 set(TEX_CORE_SOURCES
   ${TEX_ROOT}/src/tex/tex_util.c
-  ${TEX_ROOT}/src/tex/tex_arena.c
+  ${TEX_ROOT}/src/tex/tex_pool.c
   ${TEX_ROOT}/src/tex/tex_symbols.c
   ${TEX_ROOT}/src/tex/tex_metrics.c
   ${TEX_ROOT}/src/tex/tex_fonts.c
@@ -101,7 +101,7 @@ cedev_add_program(
     ${TEX_COMPILE_DEFS}
 
   LINKER_GLOBALS
-    "range .bss $D28000 : $D37FFE"
-    "provide __stack = $D37FFF"
+    "range .bss $D052C6 : $D13FD8"
+    "provide __stack = $D052C6"
     "locate .header at $D1A87F"
 )

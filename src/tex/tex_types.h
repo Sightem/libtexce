@@ -6,6 +6,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct
+{
+	int v;
+} TexCoord;
+typedef struct
+{
+	int v;
+} TexBaseline;
+
 // ================================
 // error codes
 // ================================

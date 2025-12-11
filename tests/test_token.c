@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "tex/tex_arena.h"
 #include "tex/tex_internal.h"
+#include "tex/tex_pool.h"
 #include "tex/tex_token.h"
 
 static int tests_run = 0, tests_failed = 0;
@@ -19,7 +19,7 @@ static void assert_true(int cond, const char* msg)
 }
 
 // Collect all tokens from streaming tokenizer
-static int collect_tokens(const char* buf, TeX_Token** out, TexArena* arena)
+static int collect_tokens(const char* buf, TeX_Token** out, UnifiedPool* pool)
 {
 	TeX_Stream s;
 	tex_stream_init(&s, buf, -1);
@@ -41,7 +41,7 @@ static int collect_tokens(const char* buf, TeX_Token** out, TexArena* arena)
 	// Second pass: fill tokens
 	tex_stream_init(&s, buf, -1);
 	int i = 0;
-	while (tex_stream_next(&s, &arr[i], arena, NULL))
+	while (tex_stream_next(&s, &arr[i], pool, NULL))
 	{
 		++i;
 	}
@@ -58,13 +58,13 @@ static int str_eq_token(const TeX_Token* t, const char* s)
 
 int main(void)
 {
-	TexArena arena;
-	arena_init(&arena);
+	UnifiedPool pool;
+	pool_init(&pool, 4096);
 
 	// 1) "$x$" -> T_MATH_INLINE("x")
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("$x$", &toks, &arena);
+		int n = collect_tokens("$x$", &toks, &pool);
 		assert_true(n >= 2, "math inline token count >= 2 (incl EOF)");
 		assert_true(toks[0].type == T_MATH_INLINE, "inline math token type");
 		assert_true(str_eq_token(&toks[0], "x"), "inline math payload 'x'");
@@ -75,7 +75,7 @@ int main(void)
 	// 2) "$$x^2$$ text" -> T_MATH_DISPLAY("x^2"), T_SPACE, T_TEXT("text")
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("$$x^2$$ text", &toks, &arena);
+		int n = collect_tokens("$$x^2$$ text", &toks, &pool);
 		assert_true(n >= 4, "display math token count >= 4");
 		assert_true(toks[0].type == T_MATH_DISPLAY, "display math token type");
 		assert_true(str_eq_token(&toks[0], "x^2"), "display math payload 'x^2'");
@@ -87,7 +87,7 @@ int main(void)
 	// 3) "a b\nc" -> T_TEXT("a"), T_SPACE, T_TEXT("b"), T_NEWLINE, T_TEXT("c")
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("a b\nc", &toks, &arena);
+		int n = collect_tokens("a b\nc", &toks, &pool);
 		assert_true(n >= 6, "text+space+newline token count >=6");
 		assert_true(toks[0].type == T_TEXT && str_eq_token(&toks[0], "a"), "first word 'a'");
 		assert_true(toks[1].type == T_SPACE, "space token");
@@ -100,7 +100,7 @@ int main(void)
 	// 4) "$unclosed" -> T_TEXT("$unclosed")
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("$unclosed", &toks, &arena);
+		int n = collect_tokens("$unclosed", &toks, &pool);
 		assert_true(n >= 2, "unclosed math fallback count >=2");
 		assert_true(toks[0].type == T_TEXT && str_eq_token(&toks[0], "$unclosed"), "fallback as single text token");
 		free(toks);
@@ -110,7 +110,7 @@ int main(void)
 	// Input: "$\$\{\}$" -> payload is raw "\$\{\}" (not unescaped)
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("$\\$\\{\\}$", &toks, &arena);
+		int n = collect_tokens("$\\$\\{\\}$", &toks, &pool);
 		assert_true(n >= 2, "math verbatim token count >=2");
 		assert_true(toks[0].type == T_MATH_INLINE, "inline math token for escapes");
 		assert_true(str_eq_token(&toks[0], "\\$\\{\\}"), "payload verbatim (math parser handles escapes)");
@@ -120,13 +120,13 @@ int main(void)
 	// 6) Escapes in text: "price\$100" -> T_TEXT("price$100")
 	{
 		TeX_Token* toks = NULL;
-		int n = collect_tokens("price\\$100", &toks, &arena);
+		int n = collect_tokens("price\\$100", &toks, &pool);
 		assert_true(n >= 2, "text escape token count >=2");
 		assert_true(toks[0].type == T_TEXT && str_eq_token(&toks[0], "price$100"), "text escape $ handled");
 		free(toks);
 	}
 
-	arena_free_all(&arena);
+	pool_free(&pool);
 
 	if (tests_failed == 0)
 	{

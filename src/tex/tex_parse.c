@@ -9,7 +9,6 @@
 // helpers
 // ------------------
 
-
 typedef enum
 {
 	M_EOF = 0,
@@ -36,62 +35,75 @@ typedef struct
 	const char* end;
 } MLex;
 
-
 typedef struct
 {
 	MLex lx;
 	int depth;
-	TexArena* arena; // explicit arena for node allocation
+	UnifiedPool* pool; // pool for node and string allocation
 	TeX_Layout* L; // for error reporting only
+	uint8_t current_role; // FONTROLE_MAIN=0 or FONTROLE_SCRIPT=1 for tagging
 } Parser;
 
-
-static Node* new_node(Parser* p, NodeType t)
+static NodeRef new_node(Parser* p, NodeType t)
 {
 	if (!p || !p->L)
-		return NULL;
+		return NODE_NULL;
 	if (TEX_HAS_ERROR(p->L))
-		return NULL;
+		return NODE_NULL;
 
-	Node* n = (Node*)arena_alloc(p->arena, sizeof(Node), sizeof(void*));
-	if (!n)
+	NodeRef ref = pool_alloc_node(p->pool);
+	if (ref == NODE_NULL)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_OOM, "Failed to allocate parse node", 0);
-		return NULL;
+		return NODE_NULL;
 	}
-	memset(n, 0, sizeof(Node));
+	Node* n = pool_get_node(p->pool, ref);
 	n->type = (uint8_t)t;
-	return n;
+	if (p->current_role != 0)
+		n->flags |= TEX_FLAG_SCRIPT;
+	return ref;
 }
 
-static Node* make_text(Parser* p, const char* s, size_t len)
+static NodeRef make_text(Parser* p, const char* s, size_t len)
 {
-	Node* n = new_node(p, N_TEXT);
-	if (!n)
-		return NULL;
-	n->data.text.ptr = s;
-	n->data.text.len = (int)len;
-	return n;
+	NodeRef ref = new_node(p, N_TEXT);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+
+	StringId sid = pool_alloc_string(p->pool, s, len);
+	if (sid == STRING_NULL)
+	{
+		TEX_SET_ERROR(p->L, TEX_ERR_OOM, "Failed to allocate text string", 0);
+		return NODE_NULL;
+	}
+
+	Node* n = pool_get_node(p->pool, ref);
+	n->data.text.sid = sid;
+	n->data.text.len = (uint16_t)len;
+	return ref;
 }
 
-static Node* make_glyph(Parser* p, uint16_t code)
+static NodeRef make_glyph(Parser* p, uint16_t code)
 {
-	Node* n = new_node(p, N_GLYPH);
-	if (!n)
-		return NULL;
+	NodeRef ref = new_node(p, N_GLYPH);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+	Node* n = pool_get_node(p->pool, ref);
 	n->data.glyph = code;
-	return n;
+	return ref;
 }
 
-static Node* make_multiop(Parser* p, uint8_t count, uint8_t op_type)
+static NodeRef make_multiop(Parser* p, uint8_t count, uint8_t op_type)
 {
-	Node* n = new_node(p, N_MULTIOP);
-	if (!n)
-		return NULL;
+	NodeRef ref = new_node(p, N_MULTIOP);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+	Node* n = pool_get_node(p->pool, ref);
 	n->data.multiop.count = count;
 	n->data.multiop.op_type = op_type;
-	return n;
+	return ref;
 }
+
 static void ml_init(MLex* lx, const char* s, int len)
 {
 	TEX_ASSERT(len >= 0);
@@ -181,48 +193,49 @@ static MToken ml_peek(MLex* lx)
 	return ml_next(&tmp);
 }
 
-static Node* parse_list_core(Parser* p, int stop_on_right);
-static Node* parse_math_list(Parser* p);
-static Node* parse_atom(Parser* p);
-static Node* parse_command(Parser* p, const char* name, int len);
-static Node* parse_auto_delim(Parser* p);
+static NodeRef parse_list_core(Parser* p, int stop_on_right);
+static NodeRef parse_math_list(Parser* p);
+static NodeRef parse_atom(Parser* p);
+static NodeRef parse_command(Parser* p, const char* name, int len);
+static NodeRef parse_auto_delim(Parser* p);
 
-static Node* wrap_group(Parser* p, Node* head)
+static NodeRef wrap_group(Parser* p, NodeRef head)
 {
-	Node* n = new_node(p, N_MATH);
-	if (!n)
-		return NULL;
+	NodeRef ref = new_node(p, N_MATH);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+	Node* n = pool_get_node(p->pool, ref);
 	n->child = head;
-	return n;
+	return ref;
 }
-
 
 static inline int is_script_marker(MTokenKind kind) { return kind == M_CARET || kind == M_UNDER; }
 
 // append node to a linked list
-static inline void append_node(Node** head, Node** tail, Node* n)
+static inline void append_node(Parser* p, NodeRef* head, NodeRef* tail, NodeRef ref)
 {
-	if (!n)
+	if (ref == NODE_NULL)
 		return;
-	if (!*head)
+	if (*head == NODE_NULL)
 	{
-		*head = *tail = n;
+		*head = *tail = ref;
 	}
 	else
 	{
-		(*tail)->next = n;
-		*tail = n;
+		Node* tail_node = pool_get_node(p->pool, *tail);
+		tail_node->next = ref;
+		*tail = ref;
 	}
 }
 
 // flush pending character run to the node list
 // if script_follows is true: emit all but last as N_TEXT, return last char via out_script_base
 // otherwise: emit entire run as one node (N_TEXT if len>1, N_GLYPH if len==1)
-static void flush_char_run(Parser* p, const char* run_start, int run_len, int script_follows, Node** head, Node** tail,
-                           Node** out_script_base)
+static void flush_char_run(Parser* p, const char* run_start, int run_len, int script_follows, NodeRef* head,
+                           NodeRef* tail, NodeRef* out_script_base)
 {
 	if (out_script_base)
-		*out_script_base = NULL;
+		*out_script_base = NODE_NULL;
 	if (run_len <= 0)
 		return;
 
@@ -231,8 +244,8 @@ static void flush_char_run(Parser* p, const char* run_start, int run_len, int sc
 		// emit all but last character as N_TEXT (if more than one char)
 		if (run_len > 1)
 		{
-			Node* txt = make_text(p, run_start, (size_t)(run_len - 1));
-			append_node(head, tail, txt);
+			NodeRef txt = make_text(p, run_start, (size_t)(run_len - 1));
+			append_node(p, head, tail, txt);
 		}
 		// last character becomes the script base (not appended yet)
 		if (out_script_base)
@@ -242,27 +255,27 @@ static void flush_char_run(Parser* p, const char* run_start, int run_len, int sc
 	}
 	else
 	{
-		Node* n;
+		NodeRef ref;
 		if (run_len == 1)
 		{
-			n = make_glyph(p, (uint8_t)*run_start);
+			ref = make_glyph(p, (uint8_t)*run_start);
 		}
 		else
 		{
-			n = make_text(p, run_start, (size_t)run_len);
+			ref = make_text(p, run_start, (size_t)run_len);
 		}
-		append_node(head, tail, n);
+		append_node(p, head, tail, ref);
 	}
 }
 
-static Node* parse_script_arg(Parser* p);
+static NodeRef parse_script_arg(Parser* p);
 
-static Node* attach_scripts(Parser* p, Node* base)
+static NodeRef attach_scripts(Parser* p, NodeRef base)
 {
-	if (!base)
-		return NULL;
-	Node* sub = NULL;
-	Node* sup = NULL;
+	if (base == NODE_NULL)
+		return NODE_NULL;
+	NodeRef sub = NODE_NULL;
+	NodeRef sup = NODE_NULL;
 	int again = 1;
 	while (again)
 	{
@@ -271,41 +284,53 @@ static Node* attach_scripts(Parser* p, Node* base)
 		if (k.kind == M_CARET)
 		{
 			(void)ml_next(&p->lx);
-			sup = sup ? sup : parse_script_arg(p);
-			if (!sup && !TEX_HAS_ERROR(p->L))
+			if (sup == NODE_NULL)
+			{
+				uint8_t saved_role = p->current_role;
+				p->current_role = 1; // FONTROLE_SCRIPT
+				sup = parse_script_arg(p);
+				p->current_role = saved_role;
+			}
+			if (sup == NODE_NULL && !TEX_HAS_ERROR(p->L))
 			{
 				TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Missing argument for superscript/subscript", 0);
-				return NULL;
+				return NODE_NULL;
 			}
 			again = 1;
 		}
 		else if (k.kind == M_UNDER)
 		{
 			(void)ml_next(&p->lx);
-			sub = sub ? sub : parse_script_arg(p);
-			if (!sub && !TEX_HAS_ERROR(p->L))
+			if (sub == NODE_NULL)
+			{
+				uint8_t saved_role = p->current_role;
+				p->current_role = 1; // FONTROLE_SCRIPT
+				sub = parse_script_arg(p);
+				p->current_role = saved_role;
+			}
+			if (sub == NODE_NULL && !TEX_HAS_ERROR(p->L))
 			{
 				TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Missing argument for superscript/subscript", 0);
-				return NULL;
+				return NODE_NULL;
 			}
 			again = 1;
 		}
 	}
-	if (sub || sup)
+	if (sub != NODE_NULL || sup != NODE_NULL)
 	{
-		Node* s = new_node(p, N_SCRIPT);
-		if (!s)
-			return NULL;
+		NodeRef ref = new_node(p, N_SCRIPT);
+		if (ref == NODE_NULL)
+			return NODE_NULL;
+		Node* s = pool_get_node(p->pool, ref);
 		s->data.script.base = base;
 		s->data.script.sub = sub;
 		s->data.script.sup = sup;
-		return s;
+		return ref;
 	}
 	return base;
 }
 
-
-static Node* parse_group(Parser* p)
+static NodeRef parse_group(Parser* p)
 {
 	// assumes next token is '{'
 	(void)ml_next(&p->lx);
@@ -316,11 +341,11 @@ static Node* parse_group(Parser* p)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_DEPTH, "Maximum nesting depth exceeded in group", p->depth);
 		p->depth--;
-		return NULL;
+		return NODE_NULL;
 	}
 
-	Node* head = NULL;
-	Node* tail = NULL;
+	NodeRef head = NODE_NULL;
+	NodeRef tail = NODE_NULL;
 
 	// pending run of contiguous characters
 	const char* run_start = NULL;
@@ -361,15 +386,15 @@ static Node* parse_group(Parser* p)
 			MToken next = ml_peek(&p->lx);
 			if (is_script_marker(next.kind))
 			{
-				Node* base = NULL;
+				NodeRef base = NODE_NULL;
 				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
 				run_start = NULL;
 				run_len = 0;
 
-				if (base)
+				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(&head, &tail, base);
+					append_node(p, &head, &tail, base);
 				}
 			}
 		}
@@ -380,8 +405,8 @@ static Node* parse_group(Parser* p)
 			run_len = 0;
 
 			ml_next(&p->lx);
-			Node* n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
-			append_node(&head, &tail, n);
+			NodeRef n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
+			append_node(p, &head, &tail, n);
 		}
 		else
 		{
@@ -389,10 +414,10 @@ static Node* parse_group(Parser* p)
 			run_start = NULL;
 			run_len = 0;
 
-			Node* it = parse_atom(p);
+			NodeRef it = parse_atom(p);
 			if (TEX_HAS_ERROR(p->L))
 				break;
-			if (!it)
+			if (it == NODE_NULL)
 				break;
 
 			MToken next = ml_peek(&p->lx);
@@ -401,7 +426,7 @@ static Node* parse_group(Parser* p)
 				it = attach_scripts(p, it);
 			}
 
-			append_node(&head, &tail, it);
+			append_node(p, &head, &tail, it);
 		}
 	}
 
@@ -411,16 +436,15 @@ static Node* parse_group(Parser* p)
 	return wrap_group(p, head);
 }
 
-// parse an optional bracketed argument [ ... ]; returns NULL if not present
-static Node* parse_optional_bracket_arg(Parser* p)
+// parse an optional bracketed argument [ ... ]; returns NODE_NULL if not present
+static NodeRef parse_optional_bracket_arg(Parser* p)
 {
 	MToken pk = ml_peek(&p->lx);
 	if (pk.kind != M_LBRACKET)
-		return NULL;
+		return NODE_NULL;
 
 	// consume '['
 	(void)ml_next(&p->lx);
-	// TODO: should we assert here?
 
 	// depth guard
 	p->depth++;
@@ -428,11 +452,11 @@ static Node* parse_optional_bracket_arg(Parser* p)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_DEPTH, "Maximum nesting depth exceeded in bracket arg", p->depth);
 		p->depth--;
-		return NULL;
+		return NODE_NULL;
 	}
 
-	Node* head = NULL;
-	Node* tail = NULL;
+	NodeRef head = NODE_NULL;
+	NodeRef tail = NODE_NULL;
 
 	// pending character run
 	const char* run_start = NULL;
@@ -450,7 +474,7 @@ static Node* parse_optional_bracket_arg(Parser* p)
 		{
 			TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unclosed '[' in optional argument", 0);
 			p->depth--;
-			return NULL;
+			return NODE_NULL;
 		}
 		if (TEX_HAS_ERROR(p->L))
 			break;
@@ -477,15 +501,15 @@ static Node* parse_optional_bracket_arg(Parser* p)
 			MToken next = ml_peek(&p->lx);
 			if (is_script_marker(next.kind))
 			{
-				Node* base = NULL;
+				NodeRef base = NODE_NULL;
 				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
 				run_start = NULL;
 				run_len = 0;
 
-				if (base)
+				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(&head, &tail, base);
+					append_node(p, &head, &tail, base);
 				}
 			}
 		}
@@ -496,8 +520,8 @@ static Node* parse_optional_bracket_arg(Parser* p)
 			run_len = 0;
 
 			ml_next(&p->lx);
-			Node* n = make_glyph(p, (pk2.kind == M_CARET) ? '^' : '_');
-			append_node(&head, &tail, n);
+			NodeRef n = make_glyph(p, (pk2.kind == M_CARET) ? '^' : '_');
+			append_node(p, &head, &tail, n);
 		}
 		else
 		{
@@ -505,16 +529,16 @@ static Node* parse_optional_bracket_arg(Parser* p)
 			run_start = NULL;
 			run_len = 0;
 
-			Node* item = parse_atom(p);
+			NodeRef item = parse_atom(p);
 			if (TEX_HAS_ERROR(p->L))
 			{
 				p->depth--;
-				return NULL;
+				return NODE_NULL;
 			}
-			if (!item)
+			if (item == NODE_NULL)
 				break;
 
-			append_node(&head, &tail, item);
+			append_node(p, &head, &tail, item);
 		}
 	}
 
@@ -523,14 +547,14 @@ static Node* parse_optional_bracket_arg(Parser* p)
 	p->depth--;
 
 	// treat empty [] as no index
-	if (!head)
-		return NULL;
+	if (head == NODE_NULL)
+		return NODE_NULL;
 
 	return wrap_group(p, head);
 }
 
 // parse one atom without absorbing trailing ^/_ scripts
-static Node* parse_atom_noscript(Parser* p)
+static NodeRef parse_atom_noscript(Parser* p)
 {
 	MToken t = ml_peek(&p->lx);
 	if (t.kind == M_LBRACE)
@@ -557,13 +581,13 @@ static Node* parse_atom_noscript(Parser* p)
 		return make_glyph(p, (t.kind == M_CARET) ? '^' : '_');
 	}
 	if (t.kind == M_RBRACE || t.kind == M_EOF)
-		return NULL;
+		return NODE_NULL;
 	(void)ml_next(&p->lx);
 	TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unexpected token in math expression", 0);
-	return NULL;
+	return NODE_NULL;
 }
 
-static Node* parse_script_arg(Parser* p)
+static NodeRef parse_script_arg(Parser* p)
 {
 	MToken pk = ml_peek(&p->lx);
 	if (pk.kind == M_LBRACE)
@@ -634,11 +658,11 @@ static DelimType parse_delim_type(Parser* p)
 }
 
 // parse \left <delim> ... \right <delim> construct
-static Node* parse_auto_delim(Parser* p)
+static NodeRef parse_auto_delim(Parser* p)
 {
 	DelimType l_type = parse_delim_type(p);
 
-	Node* content = parse_list_core(p, 1);
+	NodeRef content = parse_list_core(p, 1);
 
 	MToken t = ml_peek(&p->lx);
 	if (t.kind == M_CMD && t.len == 5 && strncmp(t.start, "right", 5) == 0)
@@ -648,18 +672,19 @@ static Node* parse_auto_delim(Parser* p)
 	else
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unbalanced \\left - missing \\right", 0);
-		return NULL;
+		return NODE_NULL;
 	}
 
 	DelimType r_type = parse_delim_type(p);
 
-	Node* n = new_node(p, N_AUTO_DELIM);
-	if (!n)
-		return NULL;
+	NodeRef ref = new_node(p, N_AUTO_DELIM);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+	Node* n = pool_get_node(p->pool, ref);
 	n->data.auto_delim.content = content;
 	n->data.auto_delim.left_type = (uint8_t)l_type;
 	n->data.auto_delim.right_type = (uint8_t)r_type;
-	return n;
+	return ref;
 }
 
 static const struct
@@ -701,15 +726,14 @@ static const struct
 };
 static const int func_names_count = (int)(sizeof(g_func_text) / sizeof(g_func_text[0]));
 
-
-static Node* parse_text_arg(Parser* p)
+static NodeRef parse_text_arg(Parser* p)
 {
 	// expect opening brace
 	MToken t = ml_peek(&p->lx);
 	if (t.kind != M_LBRACE)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "expected '{' after \\text", 0);
-		return NULL;
+		return NODE_NULL;
 	}
 
 	// consume '{'
@@ -742,45 +766,54 @@ static Node* parse_text_arg(Parser* p)
 	if (cur >= p->lx.end)
 	{
 		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unclosed \\text argument", 0);
-		return NULL;
+		return NODE_NULL;
 	}
 
 	// length of the segment inside { ... }
 	int raw_len = (int)(cur - start);
 
 	// create N_TEXT node
-	Node* n = new_node(p, N_TEXT);
-	if (!n)
-		return NULL;
+	NodeRef ref = new_node(p, N_TEXT);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+	Node* n = pool_get_node(p->pool, ref);
 
 	if (needs_unescape)
 	{
-		// allocate persistent storage in Arena
+		// allocate unescaped length directly in pool then overwrite with correct content
 		int ulen = tex_util_unescaped_len(start, raw_len);
-		char* buf = (char*)arena_alloc(p->arena, (size_t)ulen + 1U, 1);
-		if (!buf)
+		StringId sid = pool_alloc_string(p->pool, start, (size_t)ulen);
+		if (sid == STRING_NULL)
 		{
 			TEX_SET_ERROR(p->L, TEX_ERR_OOM, "OOM parsing \\text", 0);
-			return NULL;
+			return NODE_NULL;
 		}
+		// overwrite dummy copy with unescaped content
+		char* buf = (char*)(p->pool->slab + sid);
 		tex_util_copy_unescaped(buf, start, raw_len);
-		n->data.text.ptr = buf;
-		n->data.text.len = ulen;
+		n->data.text.sid = sid;
+		n->data.text.len = (uint16_t)ulen;
 	}
 	else
 	{
-		// point directly into input string
-		n->data.text.ptr = start;
-		n->data.text.len = raw_len;
+		// allocate copy in pool (strings must be in pool for serialization)
+		StringId sid = pool_alloc_string(p->pool, start, (size_t)raw_len);
+		if (sid == STRING_NULL)
+		{
+			TEX_SET_ERROR(p->L, TEX_ERR_OOM, "OOM parsing \\text", 0);
+			return NODE_NULL;
+		}
+		n->data.text.sid = sid;
+		n->data.text.len = (uint16_t)raw_len;
 	}
 
 	// manually advance lexer past the processed text and the closing '}'
 	p->lx.cur = cur + 1;
 
-	return n;
+	return ref;
 }
 
-static Node* parse_command(Parser* p, const char* name, int len)
+static NodeRef parse_command(Parser* p, const char* name, int len)
 {
 	SymbolDesc d;
 	memset(&d, 0, sizeof(d));
@@ -796,10 +829,11 @@ static Node* parse_command(Parser* p, const char* name, int len)
 		return make_glyph(p, d.code);
 	case SYM_SPACE:
 		{
-			Node* sp = new_node(p, N_SPACE);
-			if (!sp)
-				return NULL;
-			int w = 0;
+			NodeRef ref = new_node(p, N_SPACE);
+			if (ref == NODE_NULL)
+				return NODE_NULL;
+			Node* sp = pool_get_node(p->pool, ref);
+			int16_t w = 0;
 			if (d.code == SYMC_THINSPACE)
 				w = 2; // \,
 			else if (d.code == SYMC_MEDSPACE)
@@ -819,19 +853,20 @@ static Node* parse_command(Parser* p, const char* name, int len)
 				w = 0;
 			}
 			sp->data.space.width = w;
-			return sp;
+			return ref;
 		}
 	case SYM_ACCENT:
 		{
-			Node* base = NULL;
+			NodeRef base = NODE_NULL;
 			MToken pk = ml_peek(&p->lx);
 			if (pk.kind == M_LBRACE)
 				base = parse_group(p);
 			else
 				base = parse_atom(p);
-			Node* ov = new_node(p, N_OVERLAY);
-			if (!ov)
-				return NULL;
+			NodeRef ref = new_node(p, N_OVERLAY);
+			if (ref == NODE_NULL)
+				return NODE_NULL;
+			Node* ov = pool_get_node(p->pool, ref);
 			ov->data.overlay.base = base;
 			// Map code -> AccentType
 			uint8_t at = 0;
@@ -850,7 +885,7 @@ static Node* parse_command(Parser* p, const char* name, int len)
 			else if (d.code == SYMC_ACC_UNDERLINE)
 				at = ACC_UNDERLINE;
 			ov->data.overlay.type = at;
-			return ov;
+			return ref;
 		}
 	case SYM_STRUCT:
 		{
@@ -860,9 +895,11 @@ static Node* parse_command(Parser* p, const char* name, int len)
 			}
 			if (d.code == SYMC_FRAC)
 			{
-				// \frac{num}{den}
-				Node* num = NULL;
-				Node* den = NULL;
+				// \frac{num}{den} - both args are script context
+				uint8_t saved_role = p->current_role;
+				p->current_role = 1; // FONTROLE_SCRIPT
+				NodeRef num = NODE_NULL;
+				NodeRef den = NODE_NULL;
 				if (ml_peek(&p->lx).kind == M_LBRACE)
 					num = parse_group(p);
 				else
@@ -871,19 +908,27 @@ static Node* parse_command(Parser* p, const char* name, int len)
 					den = parse_group(p);
 				else
 					den = parse_atom(p);
-				Node* f = new_node(p, N_FRAC);
-				if (!f)
-					return NULL;
+				p->current_role = saved_role;
+				NodeRef ref = new_node(p, N_FRAC);
+				if (ref == NODE_NULL)
+					return NODE_NULL;
+				Node* f = pool_get_node(p->pool, ref);
 				f->data.frac.num = num;
 				f->data.frac.den = den;
-				return f;
+				return ref;
 			}
 			else if (d.code == SYMC_SQRT)
 			{
-				Node* index = parse_optional_bracket_arg(p);
+				// index is script context
+				uint8_t saved_role = p->current_role;
+				p->current_role = 1; // FONTROLE_SCRIPT
+				NodeRef index = parse_optional_bracket_arg(p);
+				p->current_role = saved_role;
 				if (TEX_HAS_ERROR(p->L))
-					return NULL;
-				Node* rad = NULL;
+					return NODE_NULL;
+
+				// radicand inherits current role
+				NodeRef rad = NODE_NULL;
 				MToken pk2 = ml_peek(&p->lx);
 				if (pk2.kind == M_LBRACE)
 				{
@@ -892,45 +937,50 @@ static Node* parse_command(Parser* p, const char* name, int len)
 				else if (pk2.kind == M_EOF || pk2.kind == M_RBRACE)
 				{
 					TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Missing argument for \\sqrt", 0);
-					return NULL;
+					return NODE_NULL;
 				}
 				else
 				{
 					rad = parse_atom(p);
 				}
 				if (TEX_HAS_ERROR(p->L))
-					return NULL;
-				Node* s = new_node(p, N_SQRT);
-				if (!s)
-					return NULL;
+					return NODE_NULL;
+				NodeRef ref = new_node(p, N_SQRT);
+				if (ref == NODE_NULL)
+					return NODE_NULL;
+				Node* s = pool_get_node(p->pool, ref);
 				s->data.sqrt.rad = rad;
-				s->data.sqrt.index = index; // NULL if not provided
-				return s;
+				s->data.sqrt.index = index; // NODE_NULL if not provided
+				return ref;
 			}
 			else if (d.code == SYMC_OVERBRACE || d.code == SYMC_UNDERBRACE)
 			{
-				Node* content = NULL;
+				NodeRef content = NODE_NULL;
 				MToken pk = ml_peek(&p->lx);
 				if (pk.kind == M_LBRACE)
 					content = parse_group(p);
 				else
 					content = parse_atom(p);
 
-				Node* n = new_node(p, N_SPANDECO);
-				if (!n)
-					return NULL;
+				NodeRef ref = new_node(p, N_SPANDECO);
+				if (ref == NODE_NULL)
+					return NODE_NULL;
+				Node* n = pool_get_node(p->pool, ref);
 				n->data.spandeco.content = content;
-				n->data.spandeco.label = NULL;
+				n->data.spandeco.label = NODE_NULL;
 				n->data.spandeco.deco_type = (d.code == SYMC_OVERBRACE) ? DECO_OVERBRACE : DECO_UNDERBRACE;
 
-				// ^ for overbrace, _ for underbrace
+				// ^ for overbrace, _ for underbrace, label is script context
 				MToken k = ml_peek(&p->lx);
 				if ((d.code == SYMC_OVERBRACE && k.kind == M_CARET) || (d.code == SYMC_UNDERBRACE && k.kind == M_UNDER))
 				{
 					(void)ml_next(&p->lx);
+					uint8_t saved_role = p->current_role;
+					p->current_role = 1; // FONTROLE_SCRIPT
 					n->data.spandeco.label = parse_script_arg(p);
+					p->current_role = saved_role;
 				}
-				return n;
+				return ref;
 			}
 			break;
 		}
@@ -939,18 +989,22 @@ static Node* parse_command(Parser* p, const char* name, int len)
 			// functions render as upright text, lim is special with under-limit
 			if (d.code == SYMC_FUNC_LIM)
 			{
-				Node* lim = new_node(p, N_FUNC_LIM);
-				if (!lim)
-					return NULL;
+				NodeRef ref = new_node(p, N_FUNC_LIM);
+				if (ref == NODE_NULL)
+					return NODE_NULL;
+				Node* lim = pool_get_node(p->pool, ref);
 				// optional under-limit
 				MToken pk = ml_peek(&p->lx);
 				if (pk.kind == M_UNDER)
 				{
 					(void)ml_next(&p->lx);
-					Node* arg = parse_script_arg(p);
+					uint8_t saved_role = p->current_role;
+					p->current_role = 1; // FONTROLE_SCRIPT
+					NodeRef arg = parse_script_arg(p);
+					p->current_role = saved_role;
 					lim->data.func_lim.limit = arg;
 				}
-				return lim;
+				return ref;
 			}
 
 			if (d.code > 0 && d.code < func_names_count)
@@ -959,12 +1013,20 @@ static Node* parse_command(Parser* p, const char* name, int len)
 
 				if (g_func_text[d.code].str)
 				{
-					Node* n = new_node(p, N_TEXT);
-					if (!n)
-						return NULL;
-					n->data.text.ptr = g_func_text[d.code].str;
-					n->data.text.len = g_func_text[d.code].len;
-					return n;
+					NodeRef ref = new_node(p, N_TEXT);
+					if (ref == NODE_NULL)
+						return NODE_NULL;
+					Node* n = pool_get_node(p->pool, ref);
+					// for function names, allocate in pool
+					StringId sid = pool_alloc_string(p->pool, g_func_text[d.code].str, (size_t)g_func_text[d.code].len);
+					if (sid == STRING_NULL)
+					{
+						TEX_SET_ERROR(p->L, TEX_ERR_OOM, "OOM allocating function name", 0);
+						return NODE_NULL;
+					}
+					n->data.text.sid = sid;
+					n->data.text.len = (uint16_t)g_func_text[d.code].len;
+					return ref;
 				}
 			}
 			break;
@@ -1006,16 +1068,16 @@ static Node* parse_command(Parser* p, const char* name, int len)
 			}
 			// Orphan \right is an error
 			TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unexpected \\right without \\left", 0);
-			return NULL;
+			return NODE_NULL;
 		}
-	default:
+	case SYM_NONE:
 		break;
 	}
 	// fallback to literal text
 	return make_text(p, name, (size_t)len);
 }
 
-static Node* parse_atom(Parser* p)
+static NodeRef parse_atom(Parser* p)
 {
 	MToken t = ml_peek(&p->lx);
 	if (t.kind == M_LBRACE)
@@ -1030,38 +1092,38 @@ static Node* parse_atom(Parser* p)
 	if (t.kind == M_CHAR)
 	{
 		(void)ml_next(&p->lx);
-		Node* n = make_glyph(p, (uint8_t)*t.start);
+		NodeRef n = make_glyph(p, (uint8_t)*t.start);
 		return attach_scripts(p, n);
 	}
 	if (t.kind == M_LBRACKET || t.kind == M_RBRACKET)
 	{
 		(void)ml_next(&p->lx);
-		Node* n = make_glyph(p, (t.kind == M_LBRACKET) ? '[' : ']');
+		NodeRef n = make_glyph(p, (t.kind == M_LBRACKET) ? '[' : ']');
 		return attach_scripts(p, n);
 	}
 	if (t.kind == M_CARET || t.kind == M_UNDER)
 	{
 		(void)ml_next(&p->lx);
-		Node* n = make_glyph(p, (t.kind == M_CARET) ? '^' : '_');
+		NodeRef n = make_glyph(p, (t.kind == M_CARET) ? '^' : '_');
 		return n;
 	}
 	if (t.kind == M_RBRACE)
 	{
 		// caller handles '}'
-		return NULL;
+		return NODE_NULL;
 	}
 	if (t.kind == M_EOF)
-		return NULL;
+		return NODE_NULL;
 
 	(void)ml_next(&p->lx);
 	TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unexpected token in math expression", 0);
-	return NULL;
+	return NODE_NULL;
 }
 
-static Node* parse_list_core(Parser* p, int stop_on_right)
+static NodeRef parse_list_core(Parser* p, int stop_on_right)
 {
-	Node* head = NULL;
-	Node* tail = NULL;
+	NodeRef head = NODE_NULL;
+	NodeRef tail = NODE_NULL;
 
 	// pending run of contiguous ASCII characters
 	const char* run_start = NULL;
@@ -1105,16 +1167,16 @@ static Node* parse_list_core(Parser* p, int stop_on_right)
 			if (is_script_marker(next.kind))
 			{
 				// script follows: flush run with last char as script base
-				Node* base = NULL;
+				NodeRef base = NODE_NULL;
 				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
 				run_start = NULL;
 				run_len = 0;
 
 				// attach scripts to the base glyph
-				if (base)
+				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(&head, &tail, base);
+					append_node(p, &head, &tail, base);
 				}
 			}
 			// else: continue accumulating
@@ -1127,8 +1189,8 @@ static Node* parse_list_core(Parser* p, int stop_on_right)
 			run_len = 0;
 
 			ml_next(&p->lx);
-			Node* n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
-			append_node(&head, &tail, n);
+			NodeRef n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
+			append_node(p, &head, &tail, n);
 		}
 		else
 		{
@@ -1137,10 +1199,10 @@ static Node* parse_list_core(Parser* p, int stop_on_right)
 			run_start = NULL;
 			run_len = 0;
 
-			Node* n = parse_atom(p);
-			if (TEX_HAS_ERROR(p->L) || !n)
+			NodeRef n = parse_atom(p);
+			if (TEX_HAS_ERROR(p->L) || n == NODE_NULL)
 				break;
-			append_node(&head, &tail, n);
+			append_node(p, &head, &tail, n);
 		}
 	}
 
@@ -1150,18 +1212,18 @@ static Node* parse_list_core(Parser* p, int stop_on_right)
 	return head;
 }
 
-static Node* parse_math_list(Parser* p) { return parse_list_core(p, 0); }
+static NodeRef parse_math_list(Parser* p) { return parse_list_core(p, 0); }
 
-Node* tex_parse_math(const char* input, int len, TexArena* arena, TeX_Layout* layout)
+NodeRef tex_parse_math(const char* input, int len, UnifiedPool* pool, TeX_Layout* layout)
 {
-	if (!arena)
-		return NULL;
+	if (!pool)
+		return NODE_NULL;
 
 	if (!input)
 	{
 		if (layout)
 			TEX_SET_ERROR(layout, TEX_ERR_INPUT, "NULL input to math parser", 0);
-		return NULL;
+		return NODE_NULL;
 	}
 	if (len < 0)
 		len = (int)strlen(input);
@@ -1169,19 +1231,21 @@ Node* tex_parse_math(const char* input, int len, TexArena* arena, TeX_Layout* la
 	Parser p;
 	ml_init(&p.lx, input, len);
 	p.depth = 0;
-	p.arena = arena;
+	p.pool = pool;
 	p.L = layout;
+	p.current_role = 0; // FONTROLE_MAIN
 
-	Node* seq = parse_math_list(&p);
+	NodeRef seq = parse_math_list(&p);
 	if (TEX_HAS_ERROR(layout))
 	{
-		return NULL;
+		return NODE_NULL;
 	}
 
-	Node* root = new_node(&p, N_MATH);
-	if (!root)
-		return NULL; // error already set by new_node
+	NodeRef root = new_node(&p, N_MATH);
+	if (root == NODE_NULL)
+		return NODE_NULL; // error already set by new_node
 
-	root->child = seq;
+	Node* root_node = pool_get_node(pool, root);
+	root_node->child = seq;
 	return root;
 }
