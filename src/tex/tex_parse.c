@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include "tex_measure.h"
 #include "tex_symbols.h"
 #include "tex_util.h"
 
@@ -44,6 +45,52 @@ typedef struct
 	uint8_t current_role; // FONTROLE_MAIN=0 or FONTROLE_SCRIPT=1 for tagging
 } Parser;
 
+typedef struct
+{
+	ListId head; // first block (LIST_NULL if empty)
+	ListId tail_id; // last block id
+	TexListBlock* tail_block; // cached pointer to tail block (for fast append)
+} ListBuilder;
+
+static void lb_init(ListBuilder* lb)
+{
+	lb->head = LIST_NULL;
+	lb->tail_id = LIST_NULL;
+	lb->tail_block = NULL;
+}
+
+static void lb_push(Parser* p, ListBuilder* lb, NodeRef item)
+{
+	if (item == NODE_NULL)
+		return;
+
+	// Need a new block?
+	if (lb->tail_block == NULL || lb->tail_block->count >= TEX_LIST_BLOCK_CAP)
+	{
+		ListId new_id = pool_alloc_list_block(p->pool);
+		if (new_id == LIST_NULL)
+		{
+			TEX_SET_ERROR(p->L, TEX_ERR_OOM, "Failed to allocate list block", 0);
+			return;
+		}
+		TexListBlock* new_block = pool_get_list_block(p->pool, new_id);
+
+		if (lb->head == LIST_NULL)
+		{
+			lb->head = new_id;
+		}
+		else
+		{
+			lb->tail_block->next = new_id;
+		}
+		lb->tail_id = new_id;
+		lb->tail_block = new_block;
+	}
+
+	// Append item to current block
+	lb->tail_block->items[lb->tail_block->count++] = item;
+}
+
 static NodeRef new_node(Parser* p, NodeType t)
 {
 	if (!p || !p->L)
@@ -85,14 +132,21 @@ static NodeRef make_text(Parser* p, const char* s, size_t len)
 
 static NodeRef make_glyph(Parser* p, uint16_t code)
 {
+	if (code < 128)
+	{
+		uint16_t offset = (p->current_role == FONTROLE_SCRIPT) ? 128 : 0;
+		return (NodeRef)(TEX_RESERVED_BASE + offset + code);
+	}
+
+	// fallback: alloc a new dynamic node for extended characters (Greek, etc)
 	NodeRef ref = new_node(p, N_GLYPH);
 	if (ref == NODE_NULL)
 		return NODE_NULL;
+
 	Node* n = pool_get_node(p->pool, ref);
 	n->data.glyph = code;
 	return ref;
 }
-
 static NodeRef make_multiop(Parser* p, uint8_t count, uint8_t op_type)
 {
 	NodeRef ref = new_node(p, N_MULTIOP);
@@ -199,40 +253,23 @@ static NodeRef parse_atom(Parser* p);
 static NodeRef parse_command(Parser* p, const char* name, int len);
 static NodeRef parse_auto_delim(Parser* p);
 
-static NodeRef wrap_group(Parser* p, NodeRef head)
+static NodeRef wrap_group_list(Parser* p, ListId list_head)
 {
 	NodeRef ref = new_node(p, N_MATH);
 	if (ref == NODE_NULL)
 		return NODE_NULL;
 	Node* n = pool_get_node(p->pool, ref);
-	n->child = head;
+	n->data.list.head = list_head;
 	return ref;
 }
 
 static inline int is_script_marker(MTokenKind kind) { return kind == M_CARET || kind == M_UNDER; }
 
-// append node to a linked list
-static inline void append_node(Parser* p, NodeRef* head, NodeRef* tail, NodeRef ref)
-{
-	if (ref == NODE_NULL)
-		return;
-	if (*head == NODE_NULL)
-	{
-		*head = *tail = ref;
-	}
-	else
-	{
-		Node* tail_node = pool_get_node(p->pool, *tail);
-		tail_node->next = ref;
-		*tail = ref;
-	}
-}
-
-// flush pending character run to the node list
+// flush pending character run to the list builder
 // if script_follows is true: emit all but last as N_TEXT, return last char via out_script_base
 // otherwise: emit entire run as one node (N_TEXT if len>1, N_GLYPH if len==1)
-static void flush_char_run(Parser* p, const char* run_start, int run_len, int script_follows, NodeRef* head,
-                           NodeRef* tail, NodeRef* out_script_base)
+static void flush_char_run(Parser* p, const char* run_start, int run_len, int script_follows, ListBuilder* lb,
+                           NodeRef* out_script_base)
 {
 	if (out_script_base)
 		*out_script_base = NODE_NULL;
@@ -245,7 +282,7 @@ static void flush_char_run(Parser* p, const char* run_start, int run_len, int sc
 		if (run_len > 1)
 		{
 			NodeRef txt = make_text(p, run_start, (size_t)(run_len - 1));
-			append_node(p, head, tail, txt);
+			lb_push(p, lb, txt);
 		}
 		// last character becomes the script base (not appended yet)
 		if (out_script_base)
@@ -264,7 +301,7 @@ static void flush_char_run(Parser* p, const char* run_start, int run_len, int sc
 		{
 			ref = make_text(p, run_start, (size_t)run_len);
 		}
-		append_node(p, head, tail, ref);
+		lb_push(p, lb, ref);
 	}
 }
 
@@ -344,8 +381,8 @@ static NodeRef parse_group(Parser* p)
 		return NODE_NULL;
 	}
 
-	NodeRef head = NODE_NULL;
-	NodeRef tail = NODE_NULL;
+	ListBuilder lb;
+	lb_init(&lb);
 
 	// pending run of contiguous characters
 	const char* run_start = NULL;
@@ -377,7 +414,7 @@ static NodeRef parse_group(Parser* p)
 			}
 			else
 			{
-				flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+				flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 				run_start = pk.start;
 				run_len = 1;
 			}
@@ -387,30 +424,30 @@ static NodeRef parse_group(Parser* p)
 			if (is_script_marker(next.kind))
 			{
 				NodeRef base = NODE_NULL;
-				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
+				flush_char_run(p, run_start, run_len, 1, &lb, &base);
 				run_start = NULL;
 				run_len = 0;
 
 				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(p, &head, &tail, base);
+					lb_push(p, &lb, base);
 				}
 			}
 		}
 		else if (is_script_marker(pk.kind))
 		{
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
 			ml_next(&p->lx);
 			NodeRef n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
-			append_node(p, &head, &tail, n);
+			lb_push(p, &lb, n);
 		}
 		else
 		{
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
@@ -426,14 +463,14 @@ static NodeRef parse_group(Parser* p)
 				it = attach_scripts(p, it);
 			}
 
-			append_node(p, &head, &tail, it);
+			lb_push(p, &lb, it);
 		}
 	}
 
-	flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+	flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 
 	p->depth--;
-	return wrap_group(p, head);
+	return wrap_group_list(p, lb.head);
 }
 
 // parse an optional bracketed argument [ ... ]; returns NODE_NULL if not present
@@ -455,8 +492,8 @@ static NodeRef parse_optional_bracket_arg(Parser* p)
 		return NODE_NULL;
 	}
 
-	NodeRef head = NODE_NULL;
-	NodeRef tail = NODE_NULL;
+	ListBuilder lb;
+	lb_init(&lb);
 
 	// pending character run
 	const char* run_start = NULL;
@@ -492,7 +529,7 @@ static NodeRef parse_optional_bracket_arg(Parser* p)
 			}
 			else
 			{
-				flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+				flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 				run_start = pk2.start;
 				run_len = 1;
 			}
@@ -502,30 +539,30 @@ static NodeRef parse_optional_bracket_arg(Parser* p)
 			if (is_script_marker(next.kind))
 			{
 				NodeRef base = NODE_NULL;
-				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
+				flush_char_run(p, run_start, run_len, 1, &lb, &base);
 				run_start = NULL;
 				run_len = 0;
 
 				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(p, &head, &tail, base);
+					lb_push(p, &lb, base);
 				}
 			}
 		}
 		else if (is_script_marker(pk2.kind))
 		{
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
 			ml_next(&p->lx);
 			NodeRef n = make_glyph(p, (pk2.kind == M_CARET) ? '^' : '_');
-			append_node(p, &head, &tail, n);
+			lb_push(p, &lb, n);
 		}
 		else
 		{
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
@@ -538,19 +575,19 @@ static NodeRef parse_optional_bracket_arg(Parser* p)
 			if (item == NODE_NULL)
 				break;
 
-			append_node(p, &head, &tail, item);
+			lb_push(p, &lb, item);
 		}
 	}
 
-	flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+	flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 
 	p->depth--;
 
 	// treat empty [] as no index
-	if (head == NODE_NULL)
+	if (lb.head == LIST_NULL)
 		return NODE_NULL;
 
-	return wrap_group(p, head);
+	return wrap_group_list(p, lb.head);
 }
 
 // parse one atom without absorbing trailing ^/_ scripts
@@ -1120,10 +1157,10 @@ static NodeRef parse_atom(Parser* p)
 	return NODE_NULL;
 }
 
-static NodeRef parse_list_core(Parser* p, int stop_on_right)
+static ListId parse_list_core(Parser* p, int stop_on_right)
 {
-	NodeRef head = NODE_NULL;
-	NodeRef tail = NODE_NULL;
+	ListBuilder lb;
+	lb_init(&lb);
 
 	// pending run of contiguous ASCII characters
 	const char* run_start = NULL;
@@ -1156,7 +1193,7 @@ static NodeRef parse_list_core(Parser* p, int stop_on_right)
 			else
 			{
 				// noncontiguous: flush current run, start new one
-				flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+				flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 				run_start = pk.start;
 				run_len = 1;
 			}
@@ -1168,7 +1205,7 @@ static NodeRef parse_list_core(Parser* p, int stop_on_right)
 			{
 				// script follows: flush run with last char as script base
 				NodeRef base = NODE_NULL;
-				flush_char_run(p, run_start, run_len, 1, &head, &tail, &base);
+				flush_char_run(p, run_start, run_len, 1, &lb, &base);
 				run_start = NULL;
 				run_len = 0;
 
@@ -1176,7 +1213,7 @@ static NodeRef parse_list_core(Parser* p, int stop_on_right)
 				if (base != NODE_NULL)
 				{
 					base = attach_scripts(p, base);
-					append_node(p, &head, &tail, base);
+					lb_push(p, &lb, base);
 				}
 			}
 			// else: continue accumulating
@@ -1184,35 +1221,35 @@ static NodeRef parse_list_core(Parser* p, int stop_on_right)
 		else if (is_script_marker(pk.kind))
 		{
 			// script marker without preceding character (standalone ^ or _)
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
 			ml_next(&p->lx);
 			NodeRef n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
-			append_node(p, &head, &tail, n);
+			lb_push(p, &lb, n);
 		}
 		else
 		{
 			// other token
-			flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 			run_start = NULL;
 			run_len = 0;
 
 			NodeRef n = parse_atom(p);
 			if (TEX_HAS_ERROR(p->L) || n == NODE_NULL)
 				break;
-			append_node(p, &head, &tail, n);
+			lb_push(p, &lb, n);
 		}
 	}
 
 	// flush any remaining accumulated characters
-	flush_char_run(p, run_start, run_len, 0, &head, &tail, NULL);
+	flush_char_run(p, run_start, run_len, 0, &lb, NULL);
 
-	return head;
+	return lb.head;
 }
 
-static NodeRef parse_math_list(Parser* p) { return parse_list_core(p, 0); }
+static ListId parse_math_list(Parser* p) { return parse_list_core(p, 0); }
 
 NodeRef tex_parse_math(const char* input, int len, UnifiedPool* pool, TeX_Layout* layout)
 {
@@ -1235,7 +1272,7 @@ NodeRef tex_parse_math(const char* input, int len, UnifiedPool* pool, TeX_Layout
 	p.L = layout;
 	p.current_role = 0; // FONTROLE_MAIN
 
-	NodeRef seq = parse_math_list(&p);
+	ListId seq = parse_math_list(&p);
 	if (TEX_HAS_ERROR(layout))
 	{
 		return NODE_NULL;
@@ -1246,6 +1283,6 @@ NodeRef tex_parse_math(const char* input, int len, UnifiedPool* pool, TeX_Layout
 		return NODE_NULL; // error already set by new_node
 
 	Node* root_node = pool_get_node(pool, root);
-	root_node->child = seq;
+	root_node->data.list.head = seq;
 	return root;
 }

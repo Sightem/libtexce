@@ -4,11 +4,19 @@
 
 #include "tex_internal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Parse a math expression.
 // pool: UnifiedPool for node and string allocation
 // layout: for error reporting
 // errors are reported via TEX_SET_ERROR on the layout.
 // returns the root N_MATH node ref on success, NODE_NULL on error.
 NodeRef tex_parse_math(const char* input, int len, UnifiedPool* pool, TeX_Layout* layout);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TEX_TEX_PARSE_H

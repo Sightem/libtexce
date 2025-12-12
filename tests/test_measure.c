@@ -3,8 +3,19 @@
 
 #include "tex/tex_internal.h"
 #include "tex/tex_measure.h"
+#include "tex/tex_metrics.h"
 #include "tex/tex_parse.h"
 #include "tex/tex_pool.h"
+
+static NodeRef list_first_item(UnifiedPool* pool, ListId list_head)
+{
+	if (list_head == LIST_NULL)
+		return NODE_NULL;
+	TexListBlock* block = pool_get_list_block(pool, list_head);
+	if (!block || block->count == 0)
+		return NODE_NULL;
+	return block->items[0];
+}
 
 static int g_fail = 0;
 static void expect(int cond, const char* msg)
@@ -39,7 +50,7 @@ static void test_fraction_metrics(void)
 	const char* s = "\\frac{a}{bb}";
 	NodeRef root_ref = tex_parse_math(s, (int)strlen(s), &pool, &L);
 	Node* root = pool_get_node(&pool, root_ref);
-	NodeRef f_ref = root->child;
+	NodeRef f_ref = list_first_item(&pool, root->data.list.head);
 	Node* f = pool_get_node(&pool, f_ref);
 	expect(f && f->type == N_FRAC, "parsed frac");
 	tex_measure_range(&pool, 0, (NodeRef)pool.node_count);
@@ -60,7 +71,7 @@ static void test_scripts_metrics(void)
 	const char* s = "x_1^2";
 	NodeRef root_ref = tex_parse_math(s, (int)strlen(s), &pool, &L);
 	Node* root = pool_get_node(&pool, root_ref);
-	NodeRef sc_ref = root->child;
+	NodeRef sc_ref = list_first_item(&pool, root->data.list.head);
 	Node* sc = pool_get_node(&pool, sc_ref);
 	expect(sc && sc->type == N_SCRIPT, "parsed script");
 	tex_measure_range(&pool, 0, (NodeRef)pool.node_count);
@@ -86,7 +97,7 @@ static void test_sqrt_metrics(void)
 	const char* s = "\\sqrt{xx}";
 	NodeRef root_ref = tex_parse_math(s, (int)strlen(s), &pool, &L);
 	Node* root = pool_get_node(&pool, root_ref);
-	NodeRef sq_ref = root->child;
+	NodeRef sq_ref = list_first_item(&pool, root->data.list.head);
 	Node* sq = pool_get_node(&pool, sq_ref);
 	expect(sq && sq->type == N_SQRT, "parsed sqrt");
 	tex_measure_range(&pool, 0, (NodeRef)pool.node_count);
@@ -103,7 +114,7 @@ static void test_lim_metrics(void)
 	const char* s = "\\lim_{n\\to\\infty}";
 	NodeRef root_ref = tex_parse_math(s, (int)strlen(s), &pool, &L);
 	Node* root = pool_get_node(&pool, root_ref);
-	NodeRef lm_ref = root->child;
+	NodeRef lm_ref = list_first_item(&pool, root->data.list.head);
 	Node* lm = pool_get_node(&pool, lm_ref);
 	expect(lm && lm->type == N_FUNC_LIM, "parsed lim");
 	tex_measure_range(&pool, 0, (NodeRef)pool.node_count);
@@ -115,6 +126,8 @@ static void test_lim_metrics(void)
 
 int main(void)
 {
+	// Initialize flyweight reserved nodes for ASCII glyphs
+	tex_reserved_init();
 	test_glyph_widths();
 	test_fraction_metrics();
 	test_scripts_metrics();

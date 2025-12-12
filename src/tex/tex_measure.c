@@ -102,23 +102,29 @@ static void measure_multiop(Node* n, FontRole role)
 	n->desc = tex_metrics_desc(effective_role);
 }
 
-static void aggregate_list(UnifiedPool* pool, NodeRef head, int* out_w, int* out_asc, int* out_desc)
+static void aggregate_list(UnifiedPool* pool, ListId head, int* out_w, int* out_asc, int* out_desc)
 {
 	TEX_ASSERT(out_w != NULL && out_asc != NULL && out_desc != NULL);
 	int w = 0, asc = 0, desc = 0;
 	int budget = TEX_MEASURE_LIST_BUDGET;
 
-	for (NodeRef it = head; it != NODE_NULL; --budget)
+	for (ListId bid = head; bid != LIST_NULL; --budget)
 	{
-		TEX_ASSERT(budget > 0 && "Budget exhausted: pathologically long node list");
-		Node* n = pool_get_node(pool, it);
-		if (!n)
+		TEX_ASSERT(budget > 0 && "Budget exhausted: pathologically long list chain");
+		TexListBlock* block = pool_get_list_block(pool, bid);
+		if (!block)
 			break;
-		// children are already measured in traversal
-		w += n->w;
-		asc = TEX_MAX(asc, n->asc);
-		desc = TEX_MAX(desc, n->desc);
-		it = n->next;
+		for (uint16_t i = 0; i < block->count; i++)
+		{
+			Node* n = pool_get_node(pool, block->items[i]);
+			if (!n)
+				continue;
+			// children are already measured in traversal
+			w += n->w;
+			asc = TEX_MAX(asc, n->asc);
+			desc = TEX_MAX(desc, n->desc);
+		}
+		bid = block->next;
 	}
 	*out_w = w;
 	*out_asc = asc;
@@ -144,7 +150,7 @@ static void measure_node(UnifiedPool* pool, Node* n)
 		{
 			// aggregate already measured children
 			int w = 0, asc = 0, desc = 0;
-			aggregate_list(pool, n->child, &w, &asc, &desc);
+			aggregate_list(pool, n->data.list.head, &w, &asc, &desc);
 			TEX_COORD_ASSIGN(n->w, w);
 			TEX_COORD_ASSIGN(n->asc, asc);
 			TEX_COORD_ASSIGN(n->desc, desc);
@@ -380,6 +386,15 @@ static void measure_node(UnifiedPool* pool, Node* n)
 
 			int l_w = (n->data.auto_delim.left_type == DELIM_NONE) ? 0 : delim_w;
 			int r_w = (n->data.auto_delim.right_type == DELIM_NONE) ? 0 : delim_w;
+
+			// dynamic kerning for curved parentheses
+			// large parentheses have a hollow "belly". To balance spacing relative to the
+			// math axis (fraction lines), we overlap the content into this hollow space.
+			int kern = delim_w / 2;
+			if (n->data.auto_delim.left_type == DELIM_PAREN)
+				l_w -= kern;
+			if (n->data.auto_delim.right_type == DELIM_PAREN)
+				r_w -= kern;
 
 			TEX_COORD_ASSIGN(n->w, l_w + c_w + r_w);
 			TEX_COORD_ASSIGN(n->asc, axis + (h / 2));

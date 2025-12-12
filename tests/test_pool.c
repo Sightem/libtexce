@@ -33,8 +33,7 @@ static void test_pool_basic_alloc(void)
 
 	Node* ptr1 = pool_get_node(&pool, n1);
 	expect(ptr1 != NULL, "pool_get_node returns valid pointer");
-	expect(ptr1->next == NODE_NULL, "node.next initialized to NODE_NULL");
-	expect(ptr1->child == NODE_NULL, "node.child initialized to NODE_NULL");
+	// Note: next/child fields removed in topology refactor
 
 	// Allocate another node
 	NodeRef n2 = pool_alloc_node(&pool);

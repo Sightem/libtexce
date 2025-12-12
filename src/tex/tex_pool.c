@@ -81,8 +81,6 @@ NodeRef pool_alloc_node(UnifiedPool* pool)
 
 	Node* ptr = (Node*)(pool->slab + current_node_end);
 	memset(ptr, 0, node_size); // NOLINT(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
-	ptr->next = NODE_NULL;
-	ptr->child = NODE_NULL;
 
 	update_peak(pool);
 	return ref;
@@ -115,4 +113,35 @@ StringId pool_alloc_string(UnifiedPool* pool, const char* src, size_t len)
 
 	update_peak(pool);
 	return (StringId)pool->string_cursor;
+}
+
+ListId pool_alloc_list_block(UnifiedPool* pool)
+{
+	if (!pool || !pool->slab)
+		return LIST_NULL;
+
+	size_t block_size = sizeof(TexListBlock);
+	size_t node_boundary = pool->node_count * sizeof(Node);
+
+	// align string_cursor down to 2 byte boundary before allocation
+	size_t aligned_cursor = pool->string_cursor & ~((size_t)1);
+
+	// check if we have room
+	if (aligned_cursor < block_size || (aligned_cursor - block_size) < node_boundary)
+		return LIST_NULL;
+
+	if (aligned_cursor - block_size > 0xFFFE)
+		return LIST_NULL;
+
+	// allocate downward
+	pool->string_cursor = aligned_cursor - block_size;
+	pool->alloc_count++;
+
+	TexListBlock* block = (TexListBlock*)(pool->slab + pool->string_cursor);
+	block->next = LIST_NULL;
+	block->count = 0;
+	// items are left uninitialized (count=0 means none are valid)
+
+	update_peak(pool);
+	return (ListId)pool->string_cursor;
 }

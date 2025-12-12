@@ -120,13 +120,10 @@ typedef enum
 
 typedef struct Node
 {
-	int16_t x, y; // position (y can reach total_height ~20000)
 	int16_t w; // width
 	int16_t asc, desc; // ascender/descender heights
 	uint8_t type; // NodeType
 	uint8_t flags;
-	NodeRef next; // index to next sibling (NODE_NULL if none)
-	NodeRef child; // index to first child (NODE_NULL if none)
 	union
 	{
 		struct
@@ -140,6 +137,11 @@ typedef struct Node
 			int16_t width;
 			uint8_t em_mul;
 		} space;
+		// N_MATH, N_ROOT, N_LINE: sequence container with ListId
+		struct
+		{
+			ListId head; // first block of child node list
+		} list;
 		struct
 		{
 			NodeRef num, den;
@@ -175,7 +177,7 @@ typedef struct Node
 		} multiop;
 		struct
 		{
-			NodeRef content;
+			ListId content; // ListId instead of NodeRef
 			uint8_t left_type; // DelimType
 			uint8_t right_type; // DelimType
 			int16_t delim_h; // cached symmetric height
@@ -186,10 +188,17 @@ typedef struct Node
 // =======================================
 // Pool Accessors (inline, sizeof(Node) visible)
 // =======================================
+
+// reserved nodes for ASCII glyphs (defined in tex_metrics.c)
+extern Node g_reserved_nodes[TEX_RESERVED_COUNT];
+
 static inline Node* pool_get_node(UnifiedPool* pool, NodeRef ref)
 {
 	if (ref == NODE_NULL)
 		return NULL;
+	// reserved refs map to static flyweight nodes
+	if (TEX_IS_RESERVED_REF(ref))
+		return &g_reserved_nodes[TEX_RESERVED_INDEX(ref)];
 	return (Node*)(pool->slab + ((size_t)ref * sizeof(Node)));
 }
 
@@ -200,6 +209,13 @@ static inline const char* pool_get_string(UnifiedPool* pool, StringId id)
 	return (const char*)(pool->slab + id);
 }
 
+static inline TexListBlock* pool_get_list_block(UnifiedPool* pool, ListId id)
+{
+	if (id == LIST_NULL)
+		return NULL;
+	return (TexListBlock*)(pool->slab + id);
+}
+
 // =======================================
 // Line Structure
 // =======================================
@@ -207,7 +223,8 @@ typedef struct TeX_Line
 {
 	int y;
 	int h;
-	NodeRef first; // index to first node in this line
+	int x_offset; // horizontal offset for centered content (display math)
+	ListId content; // ListId for nodes in this line
 	int child_count;
 	struct TeX_Line* next; // kept for now, will be array in renderer
 } TeX_Line;

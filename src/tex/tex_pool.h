@@ -14,6 +14,27 @@ typedef uint16_t NodeRef;
 typedef uint16_t StringId;
 #define STRING_NULL ((StringId)0xFFFF)
 
+// 16bit byte offset into the slab for list blocks (allocated in string region, grows down)
+typedef uint16_t ListId;
+#define LIST_NULL ((ListId)0xFFFF)
+
+// reserved node range for flyweight ASCII glyphs (256 preinitialized nodes)
+// NodeRef values 0xFD00-0xFDFF are "reserved" refs that map to static g_reserved_nodes[]
+#define TEX_RESERVED_BASE ((NodeRef)0xFD00)
+#define TEX_RESERVED_COUNT 256
+#define TEX_IS_RESERVED_REF(ref) ((ref) >= TEX_RESERVED_BASE && (ref) < (TEX_RESERVED_BASE + TEX_RESERVED_COUNT))
+#define TEX_RESERVED_INDEX(ref) ((ref) - TEX_RESERVED_BASE)
+
+// chunked list block, holds up to 16 NodeRefs, linked to next block
+#define TEX_LIST_BLOCK_CAP 16
+
+typedef struct TexListBlock
+{
+	ListId next; // offset to next block (LIST_NULL if none)
+	uint16_t count; // items used in this block (0..TEX_LIST_BLOCK_CAP)
+	NodeRef items[TEX_LIST_BLOCK_CAP]; // Node references
+} TexListBlock;
+
 typedef struct UnifiedPool
 {
 	uint8_t* slab; // the contiguous memory block
@@ -42,6 +63,9 @@ StringId pool_alloc_string(UnifiedPool* pool, const char* src, size_t len);
 
 // get current bytes used in pool (nodes from bottom + strings from top)
 size_t pool_get_used(UnifiedPool* pool);
+
+// alloc one zero initialized list block in string region. returns LIST_NULL on OOM
+ListId pool_alloc_list_block(UnifiedPool* pool);
 
 
 #endif // TEX_TEX_POOL_H

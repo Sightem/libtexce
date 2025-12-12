@@ -11,6 +11,46 @@
 #include "tex_util.h"
 #include "texfont.h"
 
+typedef struct
+{
+	ListId head;
+	ListId tail_id;
+	TexListBlock* tail_block;
+} DrawListBuilder;
+
+static void dlb_init(DrawListBuilder* lb)
+{
+	lb->head = LIST_NULL;
+	lb->tail_id = LIST_NULL;
+	lb->tail_block = NULL;
+}
+
+static void dlb_push(UnifiedPool* pool, DrawListBuilder* lb, NodeRef item)
+{
+	if (item == NODE_NULL)
+		return;
+
+	// Need a new block?
+	if (lb->tail_block == NULL || lb->tail_block->count >= TEX_LIST_BLOCK_CAP)
+	{
+		ListId new_id = pool_alloc_list_block(pool);
+		if (new_id == LIST_NULL)
+			return;
+		TexListBlock* new_block = pool_get_list_block(pool, new_id);
+
+		if (lb->head == LIST_NULL)
+			lb->head = new_id;
+		else
+			lb->tail_block->next = new_id;
+
+		lb->tail_id = new_id;
+		lb->tail_block = new_block;
+	}
+
+	// Append item to current block
+	lb->tail_block->items[lb->tail_block->count++] = item;
+}
+
 static UnifiedPool* g_draw_pool = NULL;
 
 #ifdef TEX_DIRECT_RENDER
@@ -310,17 +350,23 @@ static void rec_draw_paren(int x, int y_center, int w, int h, int is_left)
 static int g_axis_y = 0;
 static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role);
 
-static void draw_math_list(NodeRef head, TexCoord x, TexBaseline baseline_y, FontRole role)
+static void draw_math_list(ListId head, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
 	TexCoord cur_x = x;
-	for (NodeRef it = head; it != NODE_NULL;)
+	for (ListId bid = head; bid != LIST_NULL;)
 	{
-		Node* n = pool_get_node(g_draw_pool, it);
-		if (!n)
+		TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+		if (!block)
 			break;
-		draw_node(n, cur_x, baseline_y, role);
-		cur_x.v += n->w;
-		it = n->next;
+		for (uint16_t i = 0; i < block->count; i++)
+		{
+			Node* n = pool_get_node(g_draw_pool, block->items[i]);
+			if (!n)
+				continue;
+			draw_node(n, cur_x, baseline_y, role);
+			cur_x.v += n->w;
+		}
+		bid = block->next;
 	}
 }
 
@@ -772,28 +818,39 @@ static void draw_auto_delim(Node* n, TexCoord x, TexBaseline baseline_y, FontRol
 	int l_w = (n->data.auto_delim.left_type == DELIM_NONE) ? 0 : delim_w;
 	int r_w = (n->data.auto_delim.right_type == DELIM_NONE) ? 0 : delim_w;
 
+	int kern = delim_w / 2;
+	int l_kern = (n->data.auto_delim.left_type == DELIM_PAREN) ? kern : 0;
+	int r_kern = (n->data.auto_delim.right_type == DELIM_PAREN) ? kern : 0;
+
 	if (l_w > 0)
 		draw_proc_delim(x.v, y_center, h, (DelimType)n->data.auto_delim.left_type, 1);
 
-	NodeRef content_ref = n->data.auto_delim.content;
-	if (content_ref != NODE_NULL)
+	ListId content_list = n->data.auto_delim.content;
+	if (content_list != LIST_NULL)
 	{
-		TexCoord content_x = { x.v + l_w };
-		draw_math_list(content_ref, content_x, baseline_y, role);
+		// shift things left by kerning amount (into the hollow of the parenthesis)
+		TexCoord content_x = { x.v + l_w - l_kern };
+		draw_math_list(content_list, content_x, baseline_y, role);
 	}
 
 	if (r_w > 0)
 	{
 		int c_w = 0;
-		for (NodeRef it = content_ref; it != NODE_NULL;)
+		for (ListId bid = content_list; bid != LIST_NULL;)
 		{
-			Node* cn = pool_get_node(g_draw_pool, it);
-			if (!cn)
+			TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+			if (!block)
 				break;
-			c_w += cn->w;
-			it = cn->next;
+			for (uint16_t i = 0; i < block->count; i++)
+			{
+				Node* cn = pool_get_node(g_draw_pool, block->items[i]);
+				if (cn)
+					c_w += cn->w;
+			}
+			bid = block->next;
 		}
-		int rx = x.v + l_w + c_w;
+		// right delim start = (start of content) + (width of content) - (right kerning)
+		int rx = (x.v + l_w - l_kern) + c_w - r_kern;
 		draw_proc_delim(rx, y_center, h, (DelimType)n->data.auto_delim.right_type, 0);
 	}
 }
@@ -846,7 +903,7 @@ static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role
 	case N_SPACE:
 		break;
 	case N_MATH:
-		draw_math_list(n->child, x, baseline_y, role);
+		draw_math_list(n->data.list.head, x, baseline_y, role);
 		break;
 	case N_SCRIPT:
 		draw_script(n, x, baseline_y, role);
@@ -897,6 +954,8 @@ static int find_checkpoint_index(TeX_Layout* L, int target_y)
 
 static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 {
+	tex_metrics_invalidate_font_state();
+
 	int padded_top = scroll_y - TEX_RENDERER_PADDING;
 	int padded_bot = scroll_y + TEX_VIEWPORT_H + TEX_RENDERER_PADDING;
 	if (padded_top < 0)
@@ -922,8 +981,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 		y_start = 0;
 	}
 
-	NodeRef cur_line_head = NODE_NULL;
-	NodeRef cur_line_tail = NODE_NULL;
+	DrawListBuilder line_lb;
+	dlb_init(&line_lb);
 	int16_t x_cursor = 0;
 	int16_t line_asc = 0;
 	int16_t line_desc = 0;
@@ -947,13 +1006,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 			{
 				int eff_asc = line_asc;
 				int eff_desc = line_desc;
-				if (cur_line_head == NODE_NULL && eff_asc == 0 && eff_desc == 0)
+				if (line_lb.head == LIST_NULL && eff_asc == 0 && eff_desc == 0)
 				{
 					eff_asc = tex_metrics_asc(FONTROLE_MAIN);
 					eff_desc = tex_metrics_desc(FONTROLE_MAIN);
 				}
 
-				if (cur_line_head != NODE_NULL || eff_asc > 0 || eff_desc > 0)
+				if (line_lb.head != LIST_NULL || eff_asc > 0 || eff_desc > 0)
 				{
 					int h = eff_asc + eff_desc + TEX_LINE_LEADING;
 					if (h <= 0)
@@ -963,7 +1022,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					{
 						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
-						ln->first = cur_line_head;
+						ln->content = line_lb.head;
 						ln->y = current_y;
 						ln->h = h;
 						ln->next = NULL;
@@ -971,8 +1030,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					}
 
 					current_y += h;
-					cur_line_head = NODE_NULL;
-					cur_line_tail = NODE_NULL;
+					dlb_init(&line_lb);
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
@@ -991,10 +1049,10 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 				int16_t text_asc = tex_metrics_asc(FONTROLE_MAIN);
 				int16_t text_desc = tex_metrics_desc(FONTROLE_MAIN);
 
-				if (pending_space && cur_line_head != NODE_NULL)
+				if (pending_space && line_lb.head != LIST_NULL)
 				{
 					int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
-					if (x_cursor + space_w + text_w > layout->width && cur_line_head != NODE_NULL)
+					if (x_cursor + space_w + text_w > layout->width && line_lb.head != LIST_NULL)
 					{
 						int h = line_asc + line_desc + TEX_LINE_LEADING;
 						if (h <= 0)
@@ -1003,14 +1061,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 						{
 							TeX_Line* ln = &r->lines[r->line_count];
 							memset(ln, 0, sizeof(TeX_Line));
-							ln->first = cur_line_head;
+							ln->content = line_lb.head;
 							ln->y = current_y;
 							ln->h = h;
 							r->line_count++;
 						}
 						current_y += h;
-						cur_line_head = NODE_NULL;
-						cur_line_tail = NODE_NULL;
+						dlb_init(&line_lb);
 						x_cursor = 0;
 						line_asc = 0;
 						line_desc = 0;
@@ -1028,18 +1085,9 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 							sp->w = space_w;
 							sp->asc = text_asc;
 							sp->desc = text_desc;
-							sp->x = x_cursor;
+							// x position calculated during drawing
 
-							if (cur_line_tail != NODE_NULL)
-							{
-								Node* tail = pool_get_node(&r->pool, cur_line_tail);
-								tail->next = sp_ref;
-							}
-							else
-							{
-								cur_line_head = sp_ref;
-							}
-							cur_line_tail = sp_ref;
+							dlb_push(&r->pool, &line_lb, sp_ref);
 							x_cursor = (int16_t)(x_cursor + space_w);
 							line_asc = TEX_MAX(line_asc, text_asc);
 							line_desc = TEX_MAX(line_desc, text_desc);
@@ -1048,7 +1096,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 				}
 				pending_space = 0;
 
-				if (x_cursor + text_w > layout->width && cur_line_head != NODE_NULL)
+				if (x_cursor + text_w > layout->width && line_lb.head != LIST_NULL)
 				{
 					int h = line_asc + line_desc + TEX_LINE_LEADING;
 					if (h <= 0)
@@ -1057,14 +1105,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					{
 						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
-						ln->first = cur_line_head;
+						ln->content = line_lb.head;
 						ln->y = current_y;
 						ln->h = h;
 						r->line_count++;
 					}
 					current_y += h;
-					cur_line_head = NODE_NULL;
-					cur_line_tail = NODE_NULL;
+					dlb_init(&line_lb);
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
@@ -1081,18 +1128,9 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					node->w = text_w;
 					node->asc = text_asc;
 					node->desc = text_desc;
-					node->x = x_cursor;
+					// x position calculated during drawing
 
-					if (cur_line_tail != NODE_NULL)
-					{
-						Node* tail = pool_get_node(&r->pool, cur_line_tail);
-						tail->next = node_ref;
-					}
-					else
-					{
-						cur_line_head = node_ref;
-					}
-					cur_line_tail = node_ref;
+					dlb_push(&r->pool, &line_lb, node_ref);
 					x_cursor = (int16_t)(x_cursor + text_w);
 					line_asc = TEX_MAX(line_asc, text_asc);
 					line_desc = TEX_MAX(line_desc, text_desc);
@@ -1109,10 +1147,10 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					Node* math = pool_get_node(&r->pool, math_ref);
 					tex_measure_range(&r->pool, start_node, (NodeRef)r->pool.node_count);
 
-					if (pending_space && cur_line_head != NODE_NULL)
+					if (pending_space && line_lb.head != LIST_NULL)
 					{
 						int16_t space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
-						if (x_cursor + space_w + math->w > layout->width && cur_line_head != NODE_NULL)
+						if (x_cursor + space_w + math->w > layout->width && line_lb.head != LIST_NULL)
 						{
 							int h = line_asc + line_desc + TEX_LINE_LEADING;
 							if (h <= 0)
@@ -1121,14 +1159,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 							{
 								TeX_Line* ln = &r->lines[r->line_count];
 								memset(ln, 0, sizeof(TeX_Line));
-								ln->first = cur_line_head;
+								ln->content = line_lb.head;
 								ln->y = current_y;
 								ln->h = h;
 								r->line_count++;
 							}
 							current_y += h;
-							cur_line_head = NODE_NULL;
-							cur_line_tail = NODE_NULL;
+							dlb_init(&line_lb);
 							x_cursor = 0;
 							line_asc = 0;
 							line_desc = 0;
@@ -1140,7 +1177,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					}
 					pending_space = 0;
 
-					if (x_cursor + math->w > layout->width && cur_line_head != NODE_NULL)
+					if (x_cursor + math->w > layout->width && line_lb.head != LIST_NULL)
 					{
 						int h = line_asc + line_desc + TEX_LINE_LEADING;
 						if (h <= 0)
@@ -1149,30 +1186,20 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 						{
 							TeX_Line* ln = &r->lines[r->line_count];
 							memset(ln, 0, sizeof(TeX_Line));
-							ln->first = cur_line_head;
+							ln->content = line_lb.head;
 							ln->y = current_y;
 							ln->h = h;
 							r->line_count++;
 						}
 						current_y += h;
-						cur_line_head = NODE_NULL;
-						cur_line_tail = NODE_NULL;
+						dlb_init(&line_lb);
 						x_cursor = 0;
 						line_asc = 0;
 						line_desc = 0;
 					}
 
-					math->x = x_cursor;
-					if (cur_line_tail != NODE_NULL)
-					{
-						Node* tail = pool_get_node(&r->pool, cur_line_tail);
-						tail->next = math_ref;
-					}
-					else
-					{
-						cur_line_head = math_ref;
-					}
-					cur_line_tail = math_ref;
+					// x position calculated during drawing
+					dlb_push(&r->pool, &line_lb, math_ref);
 					x_cursor = (int16_t)(x_cursor + math->w);
 					line_asc = TEX_MAX(line_asc, math->asc);
 					line_desc = TEX_MAX(line_desc, math->desc);
@@ -1182,7 +1209,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 
 		case T_MATH_DISPLAY:
 			{
-				if (cur_line_head != NODE_NULL)
+				if (line_lb.head != LIST_NULL)
 				{
 					int h = line_asc + line_desc + TEX_LINE_LEADING;
 					if (h <= 0)
@@ -1191,14 +1218,13 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					{
 						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
-						ln->first = cur_line_head;
+						ln->content = line_lb.head;
 						ln->y = current_y;
 						ln->h = h;
 						r->line_count++;
 					}
 					current_y += h;
-					cur_line_head = NODE_NULL;
-					cur_line_tail = NODE_NULL;
+					dlb_init(&line_lb);
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
@@ -1215,9 +1241,8 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					int16_t center_x = (int16_t)((layout->width - math->w) / 2);
 					if (center_x < 0)
 						center_x = 0;
-					math->x = center_x;
-					cur_line_head = math_ref;
-					cur_line_tail = math_ref;
+					// x position calculated during drawing (centered via x_offset in TeX_Line)
+					dlb_push(&r->pool, &line_lb, math_ref);
 					line_asc = math->asc;
 					line_desc = math->desc;
 
@@ -1228,14 +1253,14 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 					{
 						TeX_Line* ln = &r->lines[r->line_count];
 						memset(ln, 0, sizeof(TeX_Line));
-						ln->first = cur_line_head;
+						ln->content = line_lb.head;
+						ln->x_offset = center_x; // center display math
 						ln->y = current_y;
 						ln->h = h;
 						r->line_count++;
 					}
 					current_y += h;
-					cur_line_head = NODE_NULL;
-					cur_line_tail = NODE_NULL;
+					dlb_init(&line_lb);
 					x_cursor = 0;
 					line_asc = 0;
 					line_desc = 0;
@@ -1249,14 +1274,14 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 		}
 	}
 
-	if (cur_line_head != NODE_NULL && r->line_count < TEX_RENDERER_MAX_LINES)
+	if (line_lb.head != LIST_NULL && r->line_count < TEX_RENDERER_MAX_LINES)
 	{
 		int h = line_asc + line_desc + TEX_LINE_LEADING;
 		if (h <= 0)
 			h = 1;
 		TeX_Line* ln = &r->lines[r->line_count];
 		memset(ln, 0, sizeof(TeX_Line));
-		ln->first = cur_line_head;
+		ln->content = line_lb.head;
 		ln->y = current_y;
 		ln->h = h;
 		r->line_count++;
@@ -1306,28 +1331,44 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 
 		int line_asc = 0;
 		int line_desc = 0;
-		for (NodeRef it = ln->first; it != NODE_NULL;)
+		for (ListId bid = ln->content; bid != LIST_NULL;)
 		{
-			Node* n = pool_get_node(g_draw_pool, it);
-			if (!n)
+			TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+			if (!block)
 				break;
-			line_asc = TEX_MAX(line_asc, n->asc);
-			line_desc = TEX_MAX(line_desc, n->desc);
-			it = n->next;
+			for (uint16_t j = 0; j < block->count; j++)
+			{
+				Node* n = pool_get_node(g_draw_pool, block->items[j]);
+				if (n)
+				{
+					line_asc = TEX_MAX(line_asc, n->asc);
+					line_desc = TEX_MAX(line_desc, n->desc);
+				}
+			}
+			bid = block->next;
 		}
 		int baseline = line_screen_top + line_asc;
 		TexBaseline baseline_y = { baseline };
 
 		g_axis_y = baseline - tex_metrics_math_axis();
 
-		for (NodeRef it = ln->first; it != NODE_NULL;)
+		// draw all nodes in the line content, calculating x positions on-the-fly
+		int cur_x = x + ln->x_offset; // x_offset provides centering for display math
+		for (ListId bid = ln->content; bid != LIST_NULL;)
 		{
-			Node* n = pool_get_node(g_draw_pool, it);
-			if (!n)
+			TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+			if (!block)
 				break;
-			TexCoord node_x = { x + n->x };
-			draw_node(n, node_x, baseline_y, FONTROLE_MAIN);
-			it = n->next;
+			for (uint16_t j = 0; j < block->count; j++)
+			{
+				Node* n = pool_get_node(g_draw_pool, block->items[j]);
+				if (!n)
+					continue;
+				TexCoord node_x = { cur_x };
+				draw_node(n, node_x, baseline_y, FONTROLE_MAIN);
+				cur_x += n->w;
+			}
+			bid = block->next;
 		}
 
 		if (r->cached_layout && ln->y + ln->h > r->window_y_end)
