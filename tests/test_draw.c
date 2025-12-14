@@ -123,6 +123,7 @@ int main(void)
 	printf("test_draw: FAIL (%d)\n", g_fail);
 	return 1;
 }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void test_error_cb(void* ud, int level, const char* msg, const char* file, int line)
 {
 	(void)ud;

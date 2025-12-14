@@ -78,9 +78,15 @@ void tex_metrics_init(struct TeX_Layout* layout)
 	}
 }
 
-int16_t tex_metrics_asc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_asc : g_state.main_asc; }
+int16_t tex_metrics_asc(FontRole role)
+{
+	return (int16_t)((role == FONTROLE_SCRIPT) ? g_state.script_asc : g_state.main_asc);
+}
 
-int16_t tex_metrics_desc(FontRole role) { return (role == FONTROLE_SCRIPT) ? g_state.script_desc : g_state.main_desc; }
+int16_t tex_metrics_desc(FontRole role)
+{
+	return (int16_t)((role == FONTROLE_SCRIPT) ? g_state.script_desc : g_state.main_desc);
+}
 
 
 int16_t tex_metrics_text_width(const char* s, FontRole role)
@@ -114,6 +120,7 @@ int16_t tex_metrics_text_width(const char* s, FontRole role)
 	return 0;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int16_t tex_metrics_text_width_n(const char* s, int len, FontRole role)
 {
 #ifdef TEX_USE_FONTLIB
@@ -142,6 +149,7 @@ int16_t tex_metrics_text_width_n(const char* s, int len, FontRole role)
 	return 0;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int16_t tex_metrics_glyph_width(unsigned int glyph, FontRole role)
 {
 #ifdef TEX_USE_FONTLIB

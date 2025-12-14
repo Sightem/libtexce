@@ -198,25 +198,34 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			}
 			else
 			{
-				int delta_y;
-				if (base)
-					delta_y = (base_desc - base_asc) / 2;
-				else
-					delta_y = (tex_metrics_desc(role) - tex_metrics_asc(role)) / 2;
+				// corner based positioning
+				int std_asc = tex_metrics_asc(role);
+				int std_desc = tex_metrics_desc(role);
+
+				// default shifts (for small bases like x)
+				int def_up = std_asc - (std_asc / 3);
+				int def_down = std_desc;
+
+				// off_up: positive pulls inwards (prevents superscript from flying too high)
+				// off_down: negative pushes outwards (pulls subscript down below the corner)
+				int off_up = std_asc / 2;
+				int off_down = -(std_asc / 4);
+
+				// calculate final shifts max(default, corner_target)
+				int shift_up = TEX_MAX(def_up, base_asc - off_up);
+				int shift_down = TEX_MAX(def_down, base_desc - off_down);
 
 				if (sup)
 				{
-					int h = sup->asc + sup->desc;
-					int dist = h + 1 - delta_y;
-					if (dist > final_asc)
-						final_asc = dist;
+					int top = shift_up + sup->asc;
+					if (top > final_asc)
+						final_asc = top;
 				}
 				if (sub)
 				{
-					int h = sub->asc + sub->desc;
-					int dist = h + 1 + delta_y;
-					if (dist > final_desc)
-						final_desc = dist;
+					int bot = shift_down + sub->desc;
+					if (bot > final_desc)
+						final_desc = bot;
 				}
 			}
 
@@ -288,17 +297,17 @@ static void measure_node(UnifiedPool* pool, Node* n)
 		{
 			Node* b = pool_get_node(pool, n->data.overlay.base);
 			int ah = accent_height(n->data.overlay.type);
-			n->w = b ? b->w : 0;
+			TEX_COORD_ASSIGN(n->w, b ? b->w : 0);
 			int extra = TEX_ACCENT_GAP + ah;
 			if (n->data.overlay.type == ACC_UNDERLINE)
 			{
-				n->asc = b ? b->asc : 0;
+				TEX_COORD_ASSIGN(n->asc, b ? b->asc : 0);
 				TEX_COORD_ASSIGN(n->desc, (b ? b->desc : 0) + extra);
 			}
 			else
 			{
 				TEX_COORD_ASSIGN(n->asc, (b ? b->asc : 0) + extra);
-				n->desc = b ? b->desc : 0;
+				TEX_COORD_ASSIGN(n->desc, b ? b->desc : 0);
 			}
 		}
 		break;
@@ -320,22 +329,22 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			{
 				int label_h = label ? (label->asc + label->desc + gap) : 0;
 				TEX_COORD_ASSIGN(n->asc, (content ? content->asc : 0) + gap + bh + label_h);
-				n->desc = content ? content->desc : 0;
+				TEX_COORD_ASSIGN(n->desc, content ? content->desc : 0);
 			}
 			else if (n->data.spandeco.deco_type == DECO_UNDERBRACE)
 			{
 				int label_h = label ? (label->asc + label->desc + gap) : 0;
-				n->asc = content ? content->asc : 0;
+				TEX_COORD_ASSIGN(n->asc, content ? content->asc : 0);
 				TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + gap + bh + label_h);
 			}
 			else if (n->data.spandeco.deco_type == DECO_OVERLINE)
 			{
 				TEX_COORD_ASSIGN(n->asc, (content ? content->asc : 0) + gap + 1);
-				n->desc = content ? content->desc : 0;
+				TEX_COORD_ASSIGN(n->desc, content ? content->desc : 0);
 			}
 			else if (n->data.spandeco.deco_type == DECO_UNDERLINE)
 			{
-				n->asc = content ? content->asc : 0;
+				TEX_COORD_ASSIGN(n->asc, content ? content->asc : 0);
 				TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + gap + 1);
 			}
 		}
@@ -399,6 +408,80 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			TEX_COORD_ASSIGN(n->w, l_w + c_w + r_w);
 			TEX_COORD_ASSIGN(n->asc, axis + (h / 2));
 			TEX_COORD_ASSIGN(n->desc, (h / 2) - axis);
+		}
+		break;
+	case N_MATRIX:
+		{
+			int16_t col_widths[TEX_MATRIX_MAX_DIMS] = { 0 };
+			int16_t row_ascs[TEX_MATRIX_MAX_DIMS] = { 0 };
+			int16_t row_descs[TEX_MATRIX_MAX_DIMS] = { 0 };
+
+			uint8_t rows = n->data.matrix.rows;
+			uint8_t cols = n->data.matrix.cols;
+
+			if (rows > TEX_MATRIX_MAX_DIMS)
+				rows = TEX_MATRIX_MAX_DIMS;
+			if (cols > TEX_MATRIX_MAX_DIMS)
+				cols = TEX_MATRIX_MAX_DIMS;
+			if (cols == 0)
+				cols = 1;
+
+			// ollect metrics from all cells
+			uint8_t cell_idx = 0;
+			for (ListId bid = n->data.matrix.cells; bid != LIST_NULL;)
+			{
+				TexListBlock* block = pool_get_list_block(pool, bid);
+				if (!block)
+					break;
+
+				for (uint16_t i = 0; i < block->count; i++)
+				{
+					uint8_t r = (uint8_t)(cell_idx / cols);
+					uint8_t c = (uint8_t)(cell_idx % cols);
+					if (r >= rows)
+						break;
+
+					Node* cell = pool_get_node(pool, block->items[i]);
+					if (cell)
+					{
+						if (cell->w > col_widths[c])
+							col_widths[c] = cell->w;
+						if (cell->asc > row_ascs[r])
+							row_ascs[r] = cell->asc;
+						if (cell->desc > row_descs[r])
+							row_descs[r] = cell->desc;
+					}
+					cell_idx++;
+				}
+				bid = block->next;
+			}
+
+			// sum up dimensions
+			int16_t total_w = 0;
+			for (uint8_t c = 0; c < cols; c++)
+				TEX_COORD_ASSIGN(total_w, total_w + col_widths[c]);
+			if (cols > 1)
+				TEX_COORD_ASSIGN(total_w, total_w + (cols - 1) * TEX_MATRIX_COL_SPACING);
+
+			int16_t total_h = 0;
+			for (uint8_t r = 0; r < rows; r++)
+				TEX_COORD_ASSIGN(total_h, total_h + row_ascs[r] + row_descs[r]);
+			if (rows > 1)
+				TEX_COORD_ASSIGN(total_h, total_h + (rows - 1) * TEX_MATRIX_ROW_SPACING);
+
+
+			int16_t delim_h = total_h;
+			int16_t delim_w = 0;
+			if (n->data.matrix.delim_type != DELIM_NONE)
+			{
+				TEX_COORD_ASSIGN(delim_w, delim_h / TEX_DELIM_WIDTH_FACTOR);
+				TEX_COORD_ASSIGN(delim_w, TEX_CLAMP(delim_w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH));
+			}
+
+			int16_t axis = tex_metrics_math_axis();
+			TEX_COORD_ASSIGN(n->w, total_w + 2 * delim_w);
+			TEX_COORD_ASSIGN(n->asc, (total_h / 2) + axis);
+			TEX_COORD_ASSIGN(n->desc, total_h - n->asc);
 		}
 		break;
 	default:

@@ -33,6 +33,8 @@ enum
 	SYMC_TEXT = 4,
 	SYMC_OVERBRACE = 5,
 	SYMC_UNDERBRACE = 6,
+	SYMC_BEGIN = 7,
+	SYMC_END = 8,
 };
 
 enum

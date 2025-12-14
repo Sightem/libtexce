@@ -5,6 +5,7 @@
 #include "include/texfont.h"
 #include "src/tex/tex_symbols.h"
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void check_sym(const char* name, SymbolKind kind, int code)
 {
 	SymbolDesc d;

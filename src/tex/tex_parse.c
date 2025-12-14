@@ -21,6 +21,8 @@ typedef enum
 	M_UNDER,
 	M_LBRACKET, // '['
 	M_RBRACKET, // ']'
+	M_AMPERSAND, // '&'
+	M_DOUBLE_BACKSLASH // '\\\\'
 } MTokenKind;
 
 typedef struct
@@ -147,6 +149,7 @@ static NodeRef make_glyph(Parser* p, uint16_t code)
 	n->data.glyph = code;
 	return ref;
 }
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static NodeRef make_multiop(Parser* p, uint8_t count, uint8_t op_type)
 {
 	NodeRef ref = new_node(p, N_MULTIOP);
@@ -215,9 +218,24 @@ static MToken ml_next(MLex* lx)
 		MToken t = { M_RBRACKET, lx->cur - 1, 1 };
 		return t;
 	}
+	if (c == '&')
+	{
+		++lx->cur;
+		MToken t = { M_AMPERSAND, lx->cur - 1, 1 };
+		return t;
+	}
 	if (c == '\\')
 	{
-		const char* s = ++lx->cur;
+		const char* cmd_start = lx->cur;
+		++lx->cur;
+
+		if (!ml_at_end(lx) && *lx->cur == '\\')
+		{
+			++lx->cur;
+			MToken t = { M_DOUBLE_BACKSLASH, cmd_start, 2 };
+			return t;
+		}
+		const char* s = lx->cur;
 		while (!ml_at_end(lx) && isalpha((unsigned char)*lx->cur))
 			++lx->cur;
 		int len = (int)(lx->cur - s);
@@ -268,6 +286,7 @@ static inline int is_script_marker(MTokenKind kind) { return kind == M_CARET || 
 // flush pending character run to the list builder
 // if script_follows is true: emit all but last as N_TEXT, return last char via out_script_base
 // otherwise: emit entire run as one node (N_TEXT if len>1, N_GLYPH if len==1)
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void flush_char_run(Parser* p, const char* run_start, int run_len, int script_follows, ListBuilder* lb,
                            NodeRef* out_script_base)
 {
@@ -632,6 +651,303 @@ static NodeRef parse_script_arg(Parser* p)
 	return parse_atom_noscript(p);
 }
 
+// parse one matrix cell until delimiter (&, \\) or \end
+// returns NODE_NULL for empty cell, single NodeRef for singleitem cell,
+// or N_MATH wrapper for multiitem cell (memory optimization)
+static NodeRef parse_matrix_cell(Parser* p)
+{
+	ListBuilder lb;
+	lb_init(&lb);
+
+	const char* run_start = NULL;
+	int run_len = 0;
+	int item_count = 0;
+	NodeRef first_item = NODE_NULL;
+
+	while (1)
+	{
+		MToken pk = ml_peek(&p->lx);
+
+		// stop on cell/row delimiters or environment end
+		if (pk.kind == M_AMPERSAND || pk.kind == M_DOUBLE_BACKSLASH || pk.kind == M_EOF || pk.kind == M_RBRACE)
+			break;
+
+		if (pk.kind == M_CMD && pk.len == 3 && strncmp(pk.start, "end", 3) == 0)
+			break;
+
+		if (TEX_HAS_ERROR(p->L))
+			break;
+
+		if (pk.kind == M_CHAR)
+		{
+			if (run_len == 0)
+			{
+				run_start = pk.start;
+				run_len = 1;
+			}
+			else if (pk.start == run_start + run_len)
+			{
+				run_len++;
+			}
+			else
+			{
+				flush_char_run(p, run_start, run_len, 0, &lb, NULL);
+				if (item_count == 0 && lb.head != LIST_NULL)
+				{
+					TexListBlock* blk = pool_get_list_block(p->pool, lb.head);
+					if (blk && blk->count > 0)
+						first_item = blk->items[0];
+				}
+				item_count++;
+				run_start = pk.start;
+				run_len = 1;
+			}
+			ml_next(&p->lx);
+
+			MToken next = ml_peek(&p->lx);
+			if (is_script_marker(next.kind))
+			{
+				NodeRef base = NODE_NULL;
+				flush_char_run(p, run_start, run_len, 1, &lb, &base);
+				run_start = NULL;
+				run_len = 0;
+				if (base != NODE_NULL)
+				{
+					base = attach_scripts(p, base);
+					lb_push(p, &lb, base);
+					if (item_count == 0)
+						first_item = base;
+					item_count++;
+				}
+			}
+		}
+		else if (is_script_marker(pk.kind))
+		{
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
+			if (run_len > 0)
+			{
+				if (item_count == 0 && lb.head != LIST_NULL)
+				{
+					TexListBlock* blk = pool_get_list_block(p->pool, lb.head);
+					if (blk && blk->count > 0)
+						first_item = blk->items[0];
+				}
+				item_count++;
+			}
+			run_start = NULL;
+			run_len = 0;
+			ml_next(&p->lx);
+			NodeRef n = make_glyph(p, (pk.kind == M_CARET) ? '^' : '_');
+			lb_push(p, &lb, n);
+			if (item_count == 0)
+				first_item = n;
+			item_count++;
+		}
+		else
+		{
+			flush_char_run(p, run_start, run_len, 0, &lb, NULL);
+			if (run_len > 0)
+			{
+				if (item_count == 0 && lb.head != LIST_NULL)
+				{
+					TexListBlock* blk = pool_get_list_block(p->pool, lb.head);
+					if (blk && blk->count > 0)
+						first_item = blk->items[0];
+				}
+				item_count++;
+			}
+			run_start = NULL;
+			run_len = 0;
+			NodeRef n = parse_atom(p);
+			if (n == NODE_NULL || TEX_HAS_ERROR(p->L))
+				break;
+			lb_push(p, &lb, n);
+			if (item_count == 0)
+				first_item = n;
+			item_count++;
+		}
+	}
+
+	// flush any remaining characters
+	if (run_len > 0)
+	{
+		flush_char_run(p, run_start, run_len, 0, &lb, NULL);
+		if (item_count == 0 && lb.head != LIST_NULL)
+		{
+			TexListBlock* blk = pool_get_list_block(p->pool, lb.head);
+			if (blk && blk->count > 0)
+				first_item = blk->items[0];
+		}
+		item_count++;
+	}
+
+	// return directly if single item
+	if (item_count == 0)
+		return NODE_NULL;
+	if (item_count == 1)
+		return first_item;
+
+	// wrap in N_MATH
+	return wrap_group_list(p, lb.head);
+}
+
+// parse matrix body until \end, returns N_MATRIX node
+static NodeRef parse_matrix_env(Parser* p, DelimType delim_type)
+{
+	// IMPORTANT: parse all cells FIRST, then allocate the matrix node
+	// this makes sure cells are allocated before the matrix in the node pool,
+	// so when tex_measure_range iterates in allocation order, cells are
+	// measured before the matrix reads their dimensions
+
+	ListBuilder lb;
+	lb_init(&lb);
+
+	int row = 0;
+	int col = 0;
+	int max_cols = 0;
+
+	while (1)
+	{
+		MToken pk = ml_peek(&p->lx);
+		if (pk.kind == M_EOF)
+		{
+			TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unclosed matrix environment", 0);
+			break;
+		}
+
+		if (pk.kind == M_CMD && pk.len == 3 && strncmp(pk.start, "end", 3) == 0)
+			break;
+
+
+		NodeRef cell = parse_matrix_cell(p);
+		lb_push(p, &lb, cell);
+		col++;
+
+		pk = ml_peek(&p->lx);
+		if (pk.kind == M_AMPERSAND)
+		{
+			ml_next(&p->lx); // consume &
+			// continue to next cell
+		}
+		else if (pk.kind == M_DOUBLE_BACKSLASH)
+		{
+			ml_next(&p->lx); // consume row separator
+			if (col > max_cols)
+				max_cols = col;
+			col = 0;
+			row++;
+		}
+		else
+		{
+			// end of env or error
+			if (col > max_cols)
+				max_cols = col;
+			row++;
+			break;
+		}
+	}
+
+	// NOW allocate the matrix node (after all cells have been parsed/allocated)
+	NodeRef ref = new_node(p, N_MATRIX);
+	if (ref == NODE_NULL)
+		return NODE_NULL;
+
+	Node* n = pool_get_node(p->pool, ref);
+	n->data.matrix.delim_type = (uint8_t)delim_type;
+	n->data.matrix.cells = lb.head;
+	n->data.matrix.rows = (uint8_t)row;
+	n->data.matrix.cols = (uint8_t)max_cols;
+
+	return ref;
+}
+
+// parse \begin{env} ... \end{env}
+static NodeRef parse_environment(Parser* p)
+{
+	// expect opening brace
+	MToken t = ml_peek(&p->lx);
+	if (t.kind != M_LBRACE)
+	{
+		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "expected '{' after \\begin", 0);
+		return NODE_NULL;
+	}
+	ml_next(&p->lx);
+
+	// parse environment name
+	const char* name_start = p->lx.cur;
+	while (!ml_at_end(&p->lx) && *p->lx.cur != '}')
+		++p->lx.cur;
+	int name_len = (int)(p->lx.cur - name_start);
+
+	if (ml_at_end(&p->lx))
+	{
+		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unclosed environment name", 0);
+		return NODE_NULL;
+	}
+	++p->lx.cur; // consume '}'
+
+	// map environment name to DelimType
+	DelimType delim = DELIM_NONE;
+	int is_matrix = 0;
+
+	if (name_len == 6 && strncmp(name_start, "matrix", 6) == 0)
+	{
+		delim = DELIM_NONE;
+		is_matrix = 1;
+	}
+	else if (name_len == 7 && strncmp(name_start, "pmatrix", 7) == 0)
+	{
+		delim = DELIM_PAREN;
+		is_matrix = 1;
+	}
+	else if (name_len == 7 && strncmp(name_start, "bmatrix", 7) == 0)
+	{
+		delim = DELIM_BRACKET;
+		is_matrix = 1;
+	}
+	else if (name_len == 7 && strncmp(name_start, "Bmatrix", 7) == 0)
+	{
+		delim = DELIM_BRACE;
+		is_matrix = 1;
+	}
+	else if (name_len == 7 && strncmp(name_start, "vmatrix", 7) == 0)
+	{
+		delim = DELIM_VERT;
+		is_matrix = 1;
+	}
+
+	if (!is_matrix)
+	{
+		// unknown
+		return make_text(p, name_start, (size_t)name_len);
+	}
+
+	// parse matrix body
+	NodeRef matrix = parse_matrix_env(p, delim);
+
+	// consume \end{...}
+	MToken end_tok = ml_peek(&p->lx);
+	if (end_tok.kind == M_CMD && end_tok.len == 3 && strncmp(end_tok.start, "end", 3) == 0)
+	{
+		ml_next(&p->lx); // consume \end
+
+		MToken brace = ml_peek(&p->lx);
+		if (brace.kind == M_LBRACE)
+		{
+			ml_next(&p->lx);
+
+			// skip to closing }
+			while (!ml_at_end(&p->lx) && *p->lx.cur != '}')
+				++p->lx.cur;
+			if (!ml_at_end(&p->lx))
+				++p->lx.cur; // consume }
+		}
+	}
+
+	return matrix;
+}
+
+
 static DelimType parse_delim_type(Parser* p)
 {
 	MToken t = ml_next(&p->lx);
@@ -687,6 +1003,9 @@ static DelimType parse_delim_type(Parser* p)
 					return DELIM_ANGLE;
 				if (strncmp(t.start, "rfloor", 6) == 0)
 					return DELIM_FLOOR;
+				break;
+			default:
+				TEX_ASSERT(0 && "Unexpected first character in 6-char delimiter command");
 				break;
 			}
 		}
@@ -926,6 +1245,16 @@ static NodeRef parse_command(Parser* p, const char* name, int len)
 		}
 	case SYM_STRUCT:
 		{
+			if (d.code == SYMC_BEGIN)
+			{
+				return parse_environment(p);
+			}
+			if (d.code == SYMC_END)
+			{
+				// orphan \end without matching \begin
+				TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "Unexpected \\end without \\begin", 0);
+				return NODE_NULL;
+			}
 			if (d.code == SYMC_TEXT)
 			{
 				return parse_text_arg(p);

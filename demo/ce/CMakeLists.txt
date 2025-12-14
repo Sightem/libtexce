@@ -105,33 +105,3 @@ cedev_add_program(
     "provide __stack = $D052C6"
     "locate .header at $D1A87F"
 )
-
-# -----------------------------------------------------------------------------
-# Demo: Stress test for baselining memory usage
-# -----------------------------------------------------------------------------
-cedev_add_program(
-  TARGET stress_math
-  NAME   "STRSMAT"
-  DESCRIPTION "CE demo: TeX stress test (500+ math symbols)"
-
-  SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/stress_math.cpp
-    ${TEX_CORE_SOURCES}
-
-  INCLUDE_DIRECTORIES
-    ${TEX_INCLUDE_DIRS}
-
-  LIBLOAD
-    graphx keypadc fontlibc
-
-  ${_DEMO_LANG_ARG}
-
-  COMPILE_OPTIONS
-    ${TEX_COMPILE_DEFS}
-
-  LINKER_GLOBALS
-    "range .bss $D052C6 : $D13FD8"
-    "provide __stack = $D052C6"
-    "locate .header at $D1A87F"
-)
-

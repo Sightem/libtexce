@@ -49,6 +49,13 @@
 #define TEX_DELIM_MIN_WIDTH 4
 #define TEX_DELIM_MAX_WIDTH 10
 
+// spacing for matrix layout
+#define TEX_MATRIX_COL_SPACING 4
+#define TEX_MATRIX_ROW_SPACING 2
+
+// safety limit for stack-allocated metric arrays during measure/draw
+#define TEX_MATRIX_MAX_DIMS 16
+
 
 // decorative braces height (vertical extent of the brace shape)
 #define TEX_BRACE_HEIGHT 4
@@ -78,7 +85,8 @@ typedef enum
 	N_SPANDECO,
 	N_FUNC_LIM,
 	N_MULTIOP,
-	N_AUTO_DELIM
+	N_AUTO_DELIM,
+	N_MATRIX
 } NodeType;
 
 typedef enum
@@ -182,6 +190,13 @@ typedef struct Node
 			uint8_t right_type; // DelimType
 			int16_t delim_h; // cached symmetric height
 		} auto_delim;
+		struct
+		{
+			ListId cells; // flat list of all cell nodes in row major order
+			uint8_t rows; // number of rows
+			uint8_t cols; // number of columns
+			uint8_t delim_type; // delim type enum for brackets
+		} matrix;
 	} data;
 } Node;
 

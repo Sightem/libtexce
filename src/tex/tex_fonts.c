@@ -14,6 +14,7 @@ static char g_sentinel_main = 0;
 static char g_sentinel_script = 0;
 #endif
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int tex_fonts_load(const char* pack_main, const char* pack_script, TexFontHandles* out)
 {
 	if (!out)

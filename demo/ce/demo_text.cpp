@@ -37,6 +37,22 @@ $$ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} $$
 
 6. Normal Distribution
 $$ P(x) = \frac{1}{\sigma \sqrt{2\pi}} e^{ -\frac{1}{2} \left( \frac{x-\mu}{\sigma} \right)^2 } $$
+
+7. Piecewise Function
+$$ f(x) = \left\{ \frac{x^2 + 1}{x - 1} \right\} $$
+
+8. Matrices
+Identity matrix:
+$$ I = \begin{pmatrix}1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & 1\end{pmatrix} $$
+
+Rotation matrix:
+$$ R = \begin{bmatrix}\cos\theta & -\sin\theta & 0 \\ \sin\theta & \cos\theta & 0 \\ 0 & 0 & 1\end{bmatrix} $$
+
+System of equations:
+$$ \begin{Bmatrix}x + y = 5 \\ 2x - y = 1 \\ x + 2y = 7\end{Bmatrix} $$
+
+Determinant:
+$$ \begin{vmatrix}a & b & c \\ d & e & f \\ g & h & i\end{vmatrix} $$
 )",
 };
 

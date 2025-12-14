@@ -11,6 +11,7 @@
 #include "tex_util.h"
 #include "texfont.h"
 
+
 typedef struct
 {
 	ListId head;
@@ -157,6 +158,7 @@ static void rec_ellipse(int cx, int cy, int rx, int ry)
 }
 
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void rec_draw_paren(int x, int y_center, int w, int h, int is_left)
 {
 	if (h <= 0 || w <= 0)
@@ -250,6 +252,7 @@ int tex_draw_log_count(void) { return g_log_n; }
 
 int tex_draw_log_get(TexDrawOp* out, int max) { return tex_draw_log_get_range(out, 0, max); }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int tex_draw_log_get_range(TexDrawOp* out, int start_index, int count)
 {
 	if (start_index < 0 || start_index >= g_log_n)
@@ -300,6 +303,7 @@ static void rec_ellipse(int cx, int cy, int rx, int ry)
 	log_op(&op);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void rec_draw_paren(int x, int y_center, int w, int h, int is_left)
 {
 	if (h <= 0 || w <= 0)
@@ -396,12 +400,14 @@ static void draw_script(Node* n, TexCoord x, TexBaseline baseline_y, FontRole ro
 		else if (base->type == N_GLYPH)
 		{
 			unsigned char g = (unsigned char)base->data.glyph;
+			// NOLINTBEGIN(bugprone-branch-clone)
 			if (g == (unsigned char)TEXFONT_INTEGRAL_CHAR)
 				op_bias = TEX_AXIS_BIAS_INTEGRAL;
 			else if (g == (unsigned char)TEXFONT_SUMMATION_CHAR)
 				op_bias = TEX_AXIS_BIAS_SUM;
 			else if (g == (unsigned char)TEXFONT_PRODUCT_CHAR)
 				op_bias = TEX_AXIS_BIAS_PROD;
+			// NOLINTEND(bugprone-branch-clone)
 		}
 
 		int half = (base->asc + base->desc) / 2;
@@ -409,6 +415,23 @@ static void draw_script(Node* n, TexCoord x, TexBaseline baseline_y, FontRole ro
 		op_top = axis - half;
 		op_bot = axis + half;
 	}
+
+	// shared metrics for nonbigop positioning
+	int std_asc = tex_metrics_asc(role);
+	int std_desc = tex_metrics_desc(role);
+
+	int def_up = std_asc - (std_asc / 3);
+	int def_down = std_desc;
+
+	int base_asc = base ? base->asc : 0;
+	int base_desc = base ? base->desc : 0;
+
+	// corner offsets where sup drops below top, sub pushed below bottom
+	int off_up = std_asc / 2;
+	int off_down = -(std_asc / 4);
+
+	int shift_up = TEX_MAX(def_up, base_asc - off_up);
+	int shift_down = TEX_MAX(def_down, base_desc - off_down);
 
 	if (sup)
 	{
@@ -419,13 +442,7 @@ static void draw_script(Node* n, TexCoord x, TexBaseline baseline_y, FontRole ro
 		}
 		else
 		{
-			int center_y;
-			if (base)
-				center_y = baseline_y.v + (base->desc - base->asc) / 2;
-			else
-				center_y = baseline_y.v - (tex_metrics_asc(role) / 2);
-
-			sup_bl.v = center_y - sup->desc - 1;
+			sup_bl.v = baseline_y.v - shift_up;
 		}
 		draw_node(sup, script_x, sup_bl, FONTROLE_SCRIPT);
 	}
@@ -439,13 +456,7 @@ static void draw_script(Node* n, TexCoord x, TexBaseline baseline_y, FontRole ro
 		}
 		else
 		{
-			int center_y;
-			if (base)
-				center_y = baseline_y.v + (base->desc - base->asc) / 2;
-			else
-				center_y = baseline_y.v - (tex_metrics_asc(role) / 2);
-
-			sub_bl.v = center_y + sub->asc + 1;
+			sub_bl.v = baseline_y.v + shift_down;
 		}
 		draw_node(sub, script_x, sub_bl, FONTROLE_SCRIPT);
 	}
@@ -709,6 +720,7 @@ static void draw_func_lim(Node* n, TexCoord x, TexBaseline baseline_y)
 	}
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_left)
 {
 	int delim_w = h / TEX_DELIM_WIDTH_FACTOR;
@@ -741,21 +753,48 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 		break;
 	case DELIM_BRACE:
 		{
-			int mid = y_center;
-			int cusp = w / 3;
-			if (is_left)
+			const int LUT_X[] = { 0, 81, 135, 157, 160, 156, 152, 152, 156, 161, 166, 167, 165, 164, 170, 198, 256 };
+			const int LUT_Y[] = { 0, 11, 26, 42, 59, 76, 92, 109, 125, 142, 159, 175, 192, 208, 225, 241, 256 };
+			const int lut_steps = sizeof(LUT_Y) / sizeof(LUT_Y[0]);
+
+			int half_h = h / 2;
+			int prev_px, prev_py;
+
+			// beak setup
+			int beak_x = is_left ? x : (x + w - 1);
+
+			prev_px = beak_x;
+			prev_py = y_center;
+
+			// top half (center -> top)
+			for (int i = 1; i < lut_steps; i++)
 			{
-				rec_line(x + w - 1, top, x + cusp, top + (mid - top) / 2);
-				rec_line(x + cusp, top + (mid - top) / 2, x, mid);
-				rec_line(x, mid, x + cusp, mid + (bot - mid) / 2);
-				rec_line(x + cusp, mid + (bot - mid) / 2, x + w - 1, bot);
+				int dy = (LUT_Y[i] * half_h) >> 8;
+				int dx = (LUT_X[i] * (w - 1)) >> 8;
+
+				int cur_py = y_center - dy;
+				int cur_px = is_left ? (beak_x + dx) : (beak_x - dx);
+
+				rec_line(prev_px, prev_py, cur_px, cur_py);
+				prev_px = cur_px;
+				prev_py = cur_py;
 			}
-			else
+
+			// bottom half (center -> bottom)
+			prev_px = beak_x;
+			prev_py = y_center;
+
+			for (int i = 1; i < lut_steps; i++)
 			{
-				rec_line(x, top, x + w - 1 - cusp, top + (mid - top) / 2);
-				rec_line(x + w - 1 - cusp, top + (mid - top) / 2, x + w - 1, mid);
-				rec_line(x + w - 1, mid, x + w - 1 - cusp, mid + (bot - mid) / 2);
-				rec_line(x + w - 1 - cusp, mid + (bot - mid) / 2, x, bot);
+				int dy = (LUT_Y[i] * half_h) >> 8;
+				int dx = (LUT_X[i] * (w - 1)) >> 8;
+
+				int cur_py = y_center + dy;
+				int cur_px = is_left ? (beak_x + dx) : (beak_x - dx);
+
+				rec_line(prev_px, prev_py, cur_px, cur_py);
+				prev_px = cur_px;
+				prev_py = cur_py;
 			}
 		}
 		break;
@@ -855,6 +894,140 @@ static void draw_auto_delim(Node* n, TexCoord x, TexBaseline baseline_y, FontRol
 	}
 }
 
+static void draw_matrix(Node* n, TexCoord x, TexBaseline baseline_y)
+{
+	int16_t col_widths[TEX_MATRIX_MAX_DIMS] = { 0 };
+	int16_t row_ascs[TEX_MATRIX_MAX_DIMS] = { 0 };
+	int16_t row_descs[TEX_MATRIX_MAX_DIMS] = { 0 };
+
+	uint8_t rows = n->data.matrix.rows;
+	uint8_t cols = n->data.matrix.cols;
+
+	if (rows > TEX_MATRIX_MAX_DIMS)
+		rows = TEX_MATRIX_MAX_DIMS;
+	if (cols > TEX_MATRIX_MAX_DIMS)
+		cols = TEX_MATRIX_MAX_DIMS;
+	if (cols == 0)
+		cols = 1; // avoid division by zero
+
+	// Collect metrics (same as measurement)
+	uint8_t cell_idx = 0;
+	for (ListId bid = n->data.matrix.cells; bid != LIST_NULL;)
+	{
+		TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+		if (!block)
+			break;
+
+		for (uint16_t i = 0; i < block->count; i++)
+		{
+			uint8_t r = (uint8_t)(cell_idx / cols);
+			uint8_t c = (uint8_t)(cell_idx % cols);
+			if (r >= rows)
+				break;
+
+			Node* cell = pool_get_node(g_draw_pool, block->items[i]);
+			if (cell)
+			{
+				if (cell->w > col_widths[c])
+					col_widths[c] = cell->w;
+				if (cell->asc > row_ascs[r])
+					row_ascs[r] = cell->asc;
+				if (cell->desc > row_descs[r])
+					row_descs[r] = cell->desc;
+			}
+			cell_idx++;
+		}
+		bid = block->next;
+	}
+
+	// total dimensions
+	int16_t total_w = 0;
+	for (uint8_t c = 0; c < cols; c++)
+		TEX_COORD_ASSIGN(total_w, total_w + col_widths[c]);
+	if (cols > 1)
+		TEX_COORD_ASSIGN(total_w, total_w + (cols - 1) * TEX_MATRIX_COL_SPACING);
+
+	int16_t total_h = 0;
+	for (uint8_t r = 0; r < rows; r++)
+		TEX_COORD_ASSIGN(total_h, total_h + row_ascs[r] + row_descs[r]);
+	if (rows > 1)
+		TEX_COORD_ASSIGN(total_h, total_h + (rows - 1) * TEX_MATRIX_ROW_SPACING);
+
+	// delimiter dimensions
+	int16_t delim_h = total_h;
+	int16_t delim_w = 0;
+	if (n->data.matrix.delim_type != DELIM_NONE)
+	{
+		TEX_COORD_ASSIGN(delim_w, delim_h / TEX_DELIM_WIDTH_FACTOR);
+		TEX_COORD_ASSIGN(delim_w, TEX_CLAMP(delim_w, TEX_DELIM_MIN_WIDTH, TEX_DELIM_MAX_WIDTH));
+	}
+
+	int16_t axis = tex_metrics_math_axis();
+	int16_t y_center = (int16_t)(baseline_y.v - axis);
+
+	// left delimiter
+	if (n->data.matrix.delim_type != DELIM_NONE)
+	{
+		draw_proc_delim(x.v, y_center, delim_h, (DelimType)n->data.matrix.delim_type, 1);
+	}
+
+	// right delimiter
+	if (n->data.matrix.delim_type != DELIM_NONE)
+	{
+		int16_t rx = (int16_t)(x.v + delim_w + total_w);
+		draw_proc_delim(rx, y_center, delim_h, (DelimType)n->data.matrix.delim_type, 0);
+	}
+
+	// cells
+	int16_t content_x = (int16_t)(x.v + delim_w);
+	int16_t content_y_top = (int16_t)(y_center - total_h / 2);
+
+	int16_t cur_y = content_y_top;
+
+	for (uint8_t r = 0; r < rows; r++)
+	{
+		int16_t row_baseline = (int16_t)(cur_y + row_ascs[r]);
+		int16_t cur_x = content_x;
+
+		for (uint8_t c = 0; c < cols; c++)
+		{
+			// get cell from list by index
+			uint8_t target_idx = (uint8_t)(r * cols + c);
+			NodeRef cell_ref = NODE_NULL;
+
+			uint8_t search_idx = 0;
+			for (ListId bid = n->data.matrix.cells; bid != LIST_NULL && cell_ref == NODE_NULL;)
+			{
+				TexListBlock* block = pool_get_list_block(g_draw_pool, bid);
+				if (!block)
+					break;
+
+				for (uint16_t i = 0; i < block->count && cell_ref == NODE_NULL; i++)
+				{
+					if (search_idx == target_idx)
+					{
+						cell_ref = block->items[i];
+					}
+					search_idx++;
+				}
+				bid = block->next;
+			}
+
+			Node* cell = pool_get_node(g_draw_pool, cell_ref);
+			if (cell)
+			{
+				// center cell horizontally within column
+				int16_t cell_x = (int16_t)(cur_x + (col_widths[c] - cell->w) / 2);
+				draw_node(cell, (TexCoord){ cell_x }, (TexBaseline){ row_baseline }, FONTROLE_MAIN);
+			}
+
+			cur_x = (int16_t)(cur_x + col_widths[c] + TEX_MATRIX_COL_SPACING);
+		}
+
+		cur_y = (int16_t)(cur_y + row_ascs[r] + row_descs[r] + TEX_MATRIX_ROW_SPACING);
+	}
+}
+
 static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role)
 {
 	if (!n)
@@ -884,12 +1057,14 @@ static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role
 				int half = (n->asc + n->desc) / 2;
 				int bias = 0;
 				unsigned char g = (unsigned char)n->data.glyph;
+				// NOLINTBEGIN(bugprone-branch-clone) - Intentional separate branches for future differentiation
 				if (g == (unsigned char)TEXFONT_INTEGRAL_CHAR)
 					bias = TEX_AXIS_BIAS_INTEGRAL;
 				else if (g == (unsigned char)TEXFONT_SUMMATION_CHAR)
 					bias = TEX_AXIS_BIAS_SUM;
 				else if (g == (unsigned char)TEXFONT_PRODUCT_CHAR)
 					bias = TEX_AXIS_BIAS_PROD;
+				// NOLINTEND(bugprone-branch-clone)
 				int y_top = (g_axis_y + bias) - half;
 				rec_glyph(x.v, y_top, (int)n->data.glyph, effective_role);
 			}
@@ -928,6 +1103,9 @@ static void draw_node(Node* n, TexCoord x, TexBaseline baseline_y, FontRole role
 		break;
 	case N_AUTO_DELIM:
 		draw_auto_delim(n, x, baseline_y, role);
+		break;
+	case N_MATRIX:
+		draw_matrix(n, x, baseline_y);
 		break;
 	default:
 		break;
@@ -1292,6 +1470,7 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 	r->cached_layout = layout;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 {
 	if (!r || !layout)

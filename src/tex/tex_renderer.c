@@ -46,6 +46,7 @@ void tex_renderer_invalidate(TeX_Renderer* r)
 	r->cached_layout = NULL;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void tex_renderer_get_stats(TeX_Renderer* r, size_t* peak_used, size_t* capacity, size_t* alloc_count,
                             size_t* reset_count)
 {

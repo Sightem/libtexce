@@ -82,6 +82,7 @@ static void finalize_line(DryRunState* S)
 	maybe_record_checkpoint(S);
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void add_content(DryRunState* S, int w, int asc, int desc)
 {
 	S->line_asc = TEX_MAX(S->line_asc, asc);

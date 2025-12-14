@@ -18,6 +18,7 @@ static void expect(int cond, const char* msg)
 }
 
 // Optional verbose error callback
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static void test_error_cb(void* ud, int level, const char* msg, const char* file, int line)
 {
 	(void)ud;
