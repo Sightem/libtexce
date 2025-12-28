@@ -7,6 +7,10 @@
 # Primary build directory
 build/
 build-ce/
+**/build-v*/
+
+# Archives
+*.7z
 
 # CMake generated files (root)
 CMakeFiles/

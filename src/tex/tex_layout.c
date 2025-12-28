@@ -196,16 +196,24 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 
 		case T_MATH_INLINE:
 			{
+				dbg_printf("[tex_format] T_MATH_INLINE: ENTER len=%d\n", t.len);
 				NodeRef start_node = (NodeRef)st.scratch.node_count;
+				dbg_printf("[tex_format] T_MATH_INLINE: start_node=%d calling tex_parse_math\n", (int)start_node);
 				NodeRef ref = tex_parse_math(t.start, t.len, &st.scratch, L);
+				dbg_printf("[tex_format] T_MATH_INLINE: tex_parse_math returned ref=%d\n", (int)ref);
 				if (ref != NODE_NULL)
 				{
+					dbg_printf("[tex_format] T_MATH_INLINE: calling pool_get_node\n");
 					Node* n = pool_get_node(&st.scratch, ref);
+					dbg_printf("[tex_format] T_MATH_INLINE: pool_get_node returned %p\n", (void*)n);
 					n->flags &= (uint8_t)~TEX_FLAG_MATHF_DISPLAY;
+					dbg_printf("[tex_format] T_MATH_INLINE: calling tex_measure_range start=%d end=%d\n", (int)start_node, (int)st.scratch.node_count);
 					tex_measure_range(&st.scratch, start_node, (NodeRef)st.scratch.node_count);
+					dbg_printf("[tex_format] T_MATH_INLINE: tex_measure_range done, n->w=%d n->asc=%d n->desc=%d\n", n->w, n->asc, n->desc);
 
 					if (st.pending_space && st.has_content)
 					{
+						dbg_printf("[tex_format] T_MATH_INLINE: pending_space branch\n");
 						int space_w = tex_metrics_text_width_n(" ", 1, FONTROLE_MAIN);
 						if (check_wrap(&st, space_w + n->w))
 						{
@@ -218,13 +226,19 @@ TeX_Layout* tex_format(char* input, int width, TeX_Config* config)
 					}
 					st.pending_space = 0;
 
+					dbg_printf("[tex_format] T_MATH_INLINE: checking wrap for w=%d\n", n->w);
 					if (check_wrap(&st, n->w))
 					{
+						dbg_printf("[tex_format] T_MATH_INLINE: wrap needed, finalizing line\n");
 						finalize_line(&st);
 					}
+					dbg_printf("[tex_format] T_MATH_INLINE: adding content\n");
 					add_content(&st, n->w, n->asc, n->desc);
+					dbg_printf("[tex_format] T_MATH_INLINE: content added\n");
 				}
+				dbg_printf("[tex_format] T_MATH_INLINE: calling pool_reset\n");
 				pool_reset(&st.scratch);
+				dbg_printf("[tex_format] T_MATH_INLINE: done\n");
 			}
 			break;
 

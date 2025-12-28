@@ -70,18 +70,25 @@ const char* demo_texts_get(int idx)
 
 int main(void)
 {
+	dbg_printf("start up successful\n");
+
 	// 1. Initialize Graphics
 	gfx_Begin();
 	gfx_SetDrawBuffer();
 	gfx_SetTransparentColor(COL_BG);
+
+	dbg_printf("graphics initialized\n");
 
 	// 2. Load Fonts (Guaranteed Safety Check)
 	// We explicitly check if the Font Packs are installed on the calculator.
 	fontlib_font_t* font_main = fontlib_GetFontByIndex("TeXFonts", 0);
 	fontlib_font_t* font_script = fontlib_GetFontByIndex("TeXScrpt", 0);
 
+	dbg_printf("font routine executed\n");
+
 	if (!font_main || !font_script)
 	{
+		dbg_printf("fonts not loaded\n");
 		// Graceful failure if AppVars are missing
 		gfx_SetColor(COL_FG);
 		gfx_SetTextFGColor(COL_FG);
@@ -103,14 +110,20 @@ int main(void)
 		return 1;
 	}
 
+	dbg_printf("fonts loaded\n");
+
 	// 3. Configure Engine Global State
 	// Provide the loaded handles to the engine for Direct Rendering
 	tex_draw_set_fonts(font_main, font_script);
+
+	dbg_printf("engine configured\n");
 
 	// Configure FontLib for drawing
 	fontlib_SetTransparency(true);
 	fontlib_SetForegroundColor(COL_FG);
 	fontlib_SetBackgroundColor(COL_BG);
+
+	dbg_printf("fontlib configured\n");
 
 	// 4. Prepare Content
 	// We must copy the const string to a mutable buffer because tex_format
@@ -118,9 +131,14 @@ int main(void)
 	const char* source_text = demo_texts_get(0);
 	size_t len = strlen(source_text);
 	char* input_buffer = static_cast<char*>(malloc(len + 1));
+	dbg_printf("input buffer allocated\n");
 	if (!input_buffer)
+	{
+		dbg_printf("input buffer allocation failed\n");
 		return 1; // OOM check
+	}
 	strcpy(input_buffer, source_text);
+	dbg_printf("input buffer copied\n");
 
 	// 5. Format Layout
 	TeX_Config cfg = {
@@ -134,12 +152,15 @@ int main(void)
 	const int content_width = GFX_LCD_WIDTH - (margin * 2);
 
 	// Format
+	dbg_printf("formatting layout\n");
 	TeX_Layout* layout = tex_format(input_buffer, content_width, &cfg);
+	dbg_printf("layout formatted\n");
 
 	// Create renderer for windowed drawing
 	TeX_Renderer* renderer = tex_renderer_create();
 	if (!renderer)
 	{
+		dbg_printf("renderer creation failed\n");
 		tex_free(layout);
 		free(input_buffer);
 		gfx_End();
@@ -155,6 +176,7 @@ int main(void)
 	// 6. Main Loop
 	while (true)
 	{
+		dbg_printf("main loop iteration\n");
 		// Input
 		kb_Scan();
 

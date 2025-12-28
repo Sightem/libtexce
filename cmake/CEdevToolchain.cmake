@@ -212,10 +212,12 @@ function(cedev_add_program)
     endif()
 
     set(_base_flags
+      -target ez80-none-elf
       -S -MD -nostdinc 
       -isystem "${CEDEV_INCLUDE}"
-      -fno-threadsafe-statics 
-      -Xclang -fforce-mangle-main-argc-argv 
+      -fno-threadsafe-statics
+      -fno-addrsig
+      # Note: -Xclang -fforce-mangle-main-argc-argv removed for v17+ compatibility
       -D__TICE__ 
       ${_CEDEV_WARNINGS} -Oz
     )
