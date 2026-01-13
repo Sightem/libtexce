@@ -51,15 +51,9 @@ const char* tex_get_error_message(TeX_Layout* layout);
 int tex_get_error_value(TeX_Layout* layout);
 
 
-#if defined(TEX_DIRECT_RENDER)
-#if defined(TEX_USE_FONTLIB)
 struct fontlib_font_t;
 typedef struct fontlib_font_t fontlib_font_t;
 void tex_draw_set_fonts(fontlib_font_t* main, fontlib_font_t* script);
-#else
-void tex_draw_set_fonts(void* main, void* script);
-#endif
-#endif
 
 #ifdef __cplusplus
 }

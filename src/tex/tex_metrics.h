@@ -44,12 +44,8 @@ int16_t tex_metrics_text_width(const char* s, FontRole role);
 int16_t tex_metrics_text_width_n(const char* s, int len, FontRole role);
 int16_t tex_metrics_glyph_width(unsigned int glyph, FontRole role);
 
-#ifdef TEX_USE_FONTLIB
 extern FontRole g_tex_metrics_current_role;
 static inline void tex_metrics_invalidate_font_state(void) { g_tex_metrics_current_role = (FontRole)-1; }
-#else
-static inline void tex_metrics_invalidate_font_state(void) {}
-#endif
 
 void tex_reserved_init(void);
 

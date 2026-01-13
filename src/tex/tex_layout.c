@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <debug.h>
+
 #include "tex.h"
 #include "tex_internal.h"
 #include "tex_measure.h"

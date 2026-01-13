@@ -54,11 +54,7 @@ static void dlb_push(UnifiedPool* pool, DrawListBuilder* lb, NodeRef item)
 
 static UnifiedPool* g_draw_pool = NULL;
 
-#ifdef TEX_DIRECT_RENDER
-
-#ifdef TEX_USE_FONTLIB
 #include <fontlibc.h>
-#endif
 #include <graphx.h>
 #if defined(__TICE__)
 #include <debug.h>
@@ -216,137 +212,6 @@ int tex_draw_log_get_range(TexDrawOp* out, int start, int count)
 	(void)count;
 	return 0;
 }
-
-#else // TEX_DIRECT_RENDER
-
-// -------------------------
-// Draw op recorder
-// -------------------------
-#define TEX_DRAW_LOG_CAP 4096
-
-static TexDrawOp g_log_buf[TEX_DRAW_LOG_CAP];
-static int g_log_n = 0;
-static int g_log_dropped = 0;
-
-static void log_op(const TexDrawOp* op)
-{
-	if (!op)
-		return;
-	if (g_log_n < TEX_DRAW_LOG_CAP)
-	{
-		g_log_buf[g_log_n++] = *op;
-	}
-	else
-	{
-		g_log_dropped = 1;
-	}
-}
-
-void tex_draw_log_reset(void)
-{
-	g_log_n = 0;
-	g_log_dropped = 0;
-}
-
-int tex_draw_log_count(void) { return g_log_n; }
-
-int tex_draw_log_get(TexDrawOp* out, int max) { return tex_draw_log_get_range(out, 0, max); }
-
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-int tex_draw_log_get_range(TexDrawOp* out, int start_index, int count)
-{
-	if (start_index < 0 || start_index >= g_log_n)
-		return 0;
-	int available = g_log_n - start_index;
-	int n = (available < count) ? available : count;
-	if (out && n > 0)
-		memcpy(out, &g_log_buf[start_index], (size_t)n * sizeof(*out));
-	return n;
-}
-
-// -------------------------
-// Drawing primitives
-// -------------------------
-static void rec_text(int x, int y_top, const char* s, int len, FontRole role)
-{
-	TexDrawOp op = { DOP_TEXT, x, y_top, 0, 0, 0, 0, 0, s, len, (int)role };
-	log_op(&op);
-}
-
-static void rec_glyph(int x, int y_top, int glyph, FontRole role)
-{
-	TexDrawOp op = { DOP_GLYPH, x, y_top, 0, 0, 0, 0, glyph, NULL, 0, (int)role };
-	log_op(&op);
-}
-
-static void rec_rule(int x, int y, int w)
-{
-	TexDrawOp op = { DOP_RULE, x, y, x + w, y, w, TEX_RULE_THICKNESS, 0, NULL, 0, 0 };
-	log_op(&op);
-}
-
-static void rec_line(int x1, int y1, int x2, int y2)
-{
-	TexDrawOp op = { DOP_LINE, x1, y1, x2, y2, 0, 0, 0, NULL, 0, 0 };
-	log_op(&op);
-}
-
-static void rec_dot(int cx, int cy)
-{
-	TexDrawOp op = { DOP_DOT, cx, cy, 0, 0, 0, 0, 0, NULL, 0, 0 };
-	log_op(&op);
-}
-
-static void rec_ellipse(int cx, int cy, int rx, int ry)
-{
-	TexDrawOp op = { DOP_ELLIPSE, cx, cy, 0, 0, rx, ry, 0, NULL, 0, 0 };
-	log_op(&op);
-}
-
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static void rec_draw_paren(int x, int y_center, int w, int h, int is_left)
-{
-	if (h <= 0 || w <= 0)
-		return;
-
-	int ry = h / 2;
-	int rx = w - 1;
-
-	static const int cos_table[7] = { 0, 128, 221, 256, 221, 128, 0 };
-	static const int sin_table[7] = { -256, -221, -128, 0, 128, 221, 256 };
-
-	int cx, prev_px, prev_py;
-
-	if (is_left)
-	{
-		cx = x + w - 1;
-		prev_px = cx - (rx * cos_table[0]) / 256;
-		prev_py = y_center + (ry * sin_table[0]) / 256;
-	}
-	else
-	{
-		cx = x;
-		prev_px = cx + (rx * cos_table[0]) / 256;
-		prev_py = y_center + (ry * sin_table[0]) / 256;
-	}
-
-	for (int i = 1; i < 7; i++)
-	{
-		int cur_px, cur_py;
-		cur_py = y_center + (ry * sin_table[i]) / 256;
-
-		if (is_left)
-			cur_px = cx - (rx * cos_table[i]) / 256;
-		else
-			cur_px = cx + (rx * cos_table[i]) / 256;
-
-		rec_line(prev_px, prev_py, cur_px, cur_py);
-		prev_px = cur_px;
-		prev_py = cur_py;
-	}
-}
-
-#endif // TEX_DIRECT_RENDER
 
 // -------------------------
 // Node draw routines
@@ -660,7 +525,8 @@ static void draw_spandeco(Node* n, TexCoord x, TexBaseline baseline_y, FontRole 
 	}
 	else if (n->data.spandeco.deco_type == DECO_UNDERBRACE)
 	{
-		int brace_y = baseline_y.v + (content ? content->desc : 0) + TEX_ACCENT_GAP;
+		int ub_gap = TEX_ACCENT_GAP + 2; // extra space above underbrace for tall delimiters
+		int brace_y = baseline_y.v + (content ? content->desc : 0) + ub_gap;
 		draw_hbrace(x.v, brace_y, w, 0);
 		if (label)
 		{
@@ -947,6 +813,15 @@ static void draw_matrix(Node* n, TexCoord x, TexBaseline baseline_y)
 	if (cols > 1)
 		TEX_COORD_ASSIGN(total_w, total_w + (cols - 1) * TEX_MATRIX_COL_SPACING);
 
+	// add extra width for column separators
+	uint8_t sep_mask = n->data.matrix.col_separators;
+	while (sep_mask)
+	{
+		if (sep_mask & 1)
+			TEX_COORD_ASSIGN(total_w, total_w + 2 * TEX_MATRIX_SEP_PAD);
+		sep_mask >>= 1;
+	}
+
 	int16_t total_h = 0;
 	for (uint8_t r = 0; r < rows; r++)
 		TEX_COORD_ASSIGN(total_h, total_h + row_ascs[r] + row_descs[r]);
@@ -1022,9 +897,33 @@ static void draw_matrix(Node* n, TexCoord x, TexBaseline baseline_y)
 			}
 
 			cur_x = (int16_t)(cur_x + col_widths[c] + TEX_MATRIX_COL_SPACING);
+			// add extra padding if there's a separator after this column
+			if (n->data.matrix.col_separators & (1 << c))
+				cur_x = (int16_t)(cur_x + 2 * TEX_MATRIX_SEP_PAD);
 		}
 
 		cur_y = (int16_t)(cur_y + row_ascs[r] + row_descs[r] + TEX_MATRIX_ROW_SPACING);
+	}
+
+	// draw column separators (for array environment)
+	if (n->data.matrix.col_separators != 0)
+	{
+		int16_t sep_x = content_x;
+		for (uint8_t c = 0; c < cols; c++)
+		{
+			sep_x = (int16_t)(sep_x + col_widths[c]);
+			if (n->data.matrix.col_separators & (1 << c))
+			{
+				// draw vertical line centered in the gap (normal spacing + separator padding)
+				int16_t line_x = (int16_t)(sep_x + TEX_MATRIX_COL_SPACING / 2 + TEX_MATRIX_SEP_PAD);
+				rec_line(line_x, content_y_top, line_x, content_y_top + total_h);
+				sep_x = (int16_t)(sep_x + TEX_MATRIX_COL_SPACING + 2 * TEX_MATRIX_SEP_PAD);
+			}
+			else
+			{
+				sep_x = (int16_t)(sep_x + TEX_MATRIX_COL_SPACING);
+			}
+		}
 	}
 }
 
@@ -1476,10 +1375,8 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 	if (!r || !layout)
 		return;
 
-#ifdef TEX_DIRECT_RENDER
 	g_draw_current_role = (FontRole)-1;
 	g_axis_y = 0;
-#endif
 
 	int vis_top = 0;
 	int vis_bot = TEX_VIEWPORT_H;

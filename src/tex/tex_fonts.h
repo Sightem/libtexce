@@ -2,13 +2,9 @@
 #define TEX_TEX_FONTS_H
 
 #include <stdint.h>
-
-#ifdef TEX_USE_FONTLIB
 #include <fontlibc.h>
+
 typedef fontlib_font_t* TexFontPtr;
-#else
-typedef void* TexFontPtr;
-#endif
 
 typedef struct
 {
@@ -26,3 +22,4 @@ typedef struct
 int tex_fonts_load(const char* pack_main, const char* pack_script, TexFontHandles* out);
 
 #endif // TEX_TEX_FONTS_H
+

@@ -53,6 +53,12 @@ $$ \begin{Bmatrix}x + y = 5 \\ 2x - y = 1 \\ x + 2y = 7\end{Bmatrix} $$
 
 Determinant:
 $$ \begin{vmatrix}a & b & c \\ d & e & f \\ g & h & i\end{vmatrix} $$
+
+Augmented matrix:
+$$ \left[ \begin{array}{ccc|c} 1 & -4 & -1 & b_1 \\ 0 & -1 & 0 & 2b_1 + b_3 \\ 0 & 4 & 2 & 4b_1 + b_2 \end{array} \right] $$
+
+9. Matrix Product with Underbrace
+$$ A = \underbrace{\begin{bmatrix} 0 & 1 & 0 \\ 1 & 0 & 0 \\ 0 & 0 & 1 \end{bmatrix}}_{\text{Inv Swap}} \times \underbrace{\begin{bmatrix} 1 & 0 & 0 \\ 0 & 1 & 0 \\ -5 & 0 & 1 \end{bmatrix}}_{\text{Inv Add}} \times \underbrace{\begin{bmatrix} 1 & 0 & 0 \\ 0 & 4 & 0 \\ 0 & 0 & 1 \end{bmatrix}}_{\text{Inv Scale}} $$
 )",
 };
 
@@ -68,9 +74,18 @@ const char* demo_texts_get(int idx)
 #define COL_BG 255 // White
 #define COL_FG 0 // Black
 
+#ifndef __TICE__
+#include <PortCE.h>
+#endif
+
 int main(void)
 {
 	dbg_printf("start up successful\n");
+
+#ifndef __TICE__
+	// Initialize PortCE for native SDL rendering
+	PortCE_initialize("libtexce Demo");
+#endif
 
 	// 1. Initialize Graphics
 	gfx_Begin();
@@ -224,6 +239,10 @@ int main(void)
 		tex_free(layout);
 	free(input_buffer); // Free buffer AFTER layout is freed
 	gfx_End();
+
+#ifndef __TICE__
+	PortCE_terminate();
+#endif
 
 	return 0;
 }

@@ -51,6 +51,7 @@
 
 // spacing for matrix layout
 #define TEX_MATRIX_COL_SPACING 4
+#define TEX_MATRIX_SEP_PAD 2     // extra padding on each side of column separator line
 #define TEX_MATRIX_ROW_SPACING 2
 
 // safety limit for stack-allocated metric arrays during measure/draw
@@ -196,6 +197,7 @@ typedef struct Node
 			uint8_t rows; // number of rows
 			uint8_t cols; // number of columns
 			uint8_t delim_type; // delim type enum for brackets
+			uint8_t col_separators; // bitmask: bit N set = vertical line after column N
 		} matrix;
 	} data;
 } Node;

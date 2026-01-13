@@ -1,0 +1,3 @@
+[submodule "portce"]
+	path = portce
+	url = /home/sightem/projects/PortCE

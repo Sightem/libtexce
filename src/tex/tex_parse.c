@@ -889,6 +889,7 @@ static NodeRef parse_environment(Parser* p)
 	// map environment name to DelimType
 	DelimType delim = DELIM_NONE;
 	int is_matrix = 0;
+	uint8_t col_separators = 0;
 
 	if (name_len == 6 && strncmp(name_start, "matrix", 6) == 0)
 	{
@@ -915,6 +916,40 @@ static NodeRef parse_environment(Parser* p)
 		delim = DELIM_VERT;
 		is_matrix = 1;
 	}
+	else if (name_len == 5 && strncmp(name_start, "array", 5) == 0)
+	{
+		// array environment: parse column spec {ccc|c}
+		delim = DELIM_NONE;
+		is_matrix = 1;
+
+		// expect column spec in braces
+		MToken spec_brace = ml_peek(&p->lx);
+		if (spec_brace.kind == M_LBRACE)
+		{
+			ml_next(&p->lx); // consume '{'
+			int col_count = 0;
+			while (!ml_at_end(&p->lx) && *p->lx.cur != '}')
+			{
+				char c = *p->lx.cur;
+				if (c == 'c' || c == 'l' || c == 'r')
+				{
+					col_count++;
+				}
+				else if (c == '|')
+				{
+					// separator after previous column (if any columns exist)
+					if (col_count > 0 && col_count <= 8)
+					{
+						col_separators |= (uint8_t)(1 << (col_count - 1));
+					}
+				}
+				// ignore other characters (spaces, etc)
+				++p->lx.cur;
+			}
+			if (!ml_at_end(&p->lx))
+				++p->lx.cur; // consume '}'
+		}
+	}
 
 	if (!is_matrix)
 	{
@@ -924,6 +959,13 @@ static NodeRef parse_environment(Parser* p)
 
 	// parse matrix body
 	NodeRef matrix = parse_matrix_env(p, delim);
+
+	// set column separators if any (for array environment)
+	if (matrix != NODE_NULL && col_separators != 0)
+	{
+		Node* n = pool_get_node(p->pool, matrix);
+		n->data.matrix.col_separators = col_separators;
+	}
 
 	// consume \end{...}
 	MToken end_tok = ml_peek(&p->lx);

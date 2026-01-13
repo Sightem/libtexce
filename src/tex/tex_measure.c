@@ -334,8 +334,9 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			else if (n->data.spandeco.deco_type == DECO_UNDERBRACE)
 			{
 				int label_h = label ? (label->asc + label->desc + gap) : 0;
+				int ub_gap = gap + 2; // extra space above underbrace for tall delimiters
 				TEX_COORD_ASSIGN(n->asc, content ? content->asc : 0);
-				TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + gap + bh + label_h);
+				TEX_COORD_ASSIGN(n->desc, (content ? content->desc : 0) + ub_gap + bh + label_h);
 			}
 			else if (n->data.spandeco.deco_type == DECO_OVERLINE)
 			{
@@ -462,6 +463,15 @@ static void measure_node(UnifiedPool* pool, Node* n)
 				TEX_COORD_ASSIGN(total_w, total_w + col_widths[c]);
 			if (cols > 1)
 				TEX_COORD_ASSIGN(total_w, total_w + (cols - 1) * TEX_MATRIX_COL_SPACING);
+
+			// add extra width for column separators (padding on each side of line)
+			uint8_t sep_mask = n->data.matrix.col_separators;
+			while (sep_mask)
+			{
+				if (sep_mask & 1)
+					TEX_COORD_ASSIGN(total_w, total_w + 2 * TEX_MATRIX_SEP_PAD);
+				sep_mask >>= 1;
+			}
 
 			int16_t total_h = 0;
 			for (uint8_t r = 0; r < rows; r++)
