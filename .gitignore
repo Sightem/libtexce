@@ -6,7 +6,6 @@
 
 # Primary build directory
 build/
-build-ce/
 **/build-v*/
 
 # Archives
@@ -17,6 +16,7 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+!autotests/Makefile
 compile_commands.json
 
 # Nested build output folders (if additional build trees or presets created)
@@ -53,6 +53,9 @@ compile_commands.json
 *.8xm
 *.8xk
 *.8x*
+
+!assets/*.8xv
+!assets/*.8xg
 
 # Graphics converter outputs (if used)
 src/gfx/**

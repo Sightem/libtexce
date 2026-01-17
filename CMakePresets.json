@@ -3,13 +3,31 @@
     "configurePresets": [
         {
             "name": "native",
-            "displayName": "Native (Testing)",
-            "description": "Build for host system with tests enabled",
+            "displayName": "Native (PortCE + SDL2)",
+            "description": "Build for host system with PortCE demo and tests",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build",
+            "binaryDir": "${sourceDir}/build/native",
             "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "ENABLE_HOST_TESTS": "ON"
+                "ENABLE_HOST_TESTS": "ON",
+                "ENABLE_PORTCE_DEMO": "ON"
+            }
+        },
+        {
+            "name": "wasm",
+            "displayName": "WebAssembly (Emscripten)",
+            "description": "Build for browser using Emscripten",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/wasm",
+            "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "ENABLE_HOST_TESTS": "OFF",
+                "ENABLE_STRICT_WARNINGS": "OFF",
+                "ENABLE_CLANG_TIDY": "OFF",
+                "ENABLE_PORTCE_DEMO": "ON"
             }
         }
     ],
@@ -18,6 +36,11 @@
             "name": "native",
             "displayName": "Build Native",
             "configurePreset": "native"
+        },
+        {
+            "name": "wasm",
+            "displayName": "Build WebAssembly",
+            "configurePreset": "wasm"
         }
     ]
 }

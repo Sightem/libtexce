@@ -57,7 +57,7 @@ cedev_add_program(
   DESCRIPTION "CE demo: TeX renderer (scrollable text)"
 
   SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/demo_text.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../demo_text.cpp
     ${TEX_CORE_SOURCES}
 
   INCLUDE_DIRECTORIES
@@ -86,7 +86,7 @@ cedev_add_program(
   DESCRIPTION "CE demo: TeX renderer (chat thread)"
 
   SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/demo_thread.c
+    ${CMAKE_CURRENT_LIST_DIR}/../demo_thread.c
     ${TEX_CORE_SOURCES}
 
   INCLUDE_DIRECTORIES

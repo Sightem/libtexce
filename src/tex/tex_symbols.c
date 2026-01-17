@@ -154,6 +154,7 @@ static const MapEnt g_map[] = {
 	{ "tfrac", SYMC_FRAC, SYM_STRUCT },
 	{ "therefore", GL(TEXFONT_THEREFORE_CHAR), SYM_GLYPH },
 	{ "theta", GL(TEXFONT_theta_CHAR), SYM_GLYPH },
+	{ "tilde", SYMC_ACC_TILDE, SYM_ACCENT },
 	{ "times", GL(TEXFONT_TIMES_CHAR), SYM_GLYPH },
 	{ "to", GL(TEXFONT_ARROW_RIGHT_CHAR), SYM_GLYPH },
 	{ "underbrace", SYMC_UNDERBRACE, SYM_STRUCT },

@@ -1,0 +1,226 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, ci-setup]
+  pull_request:
+    branches: [main, master]
+
+env:
+  AUTOTESTER_ROM: ${{github.workspace}}/secrets/83pce_515_530.rom
+  CEDEV: ${{github.workspace}}/CEdev
+  CEDEV_BIN: ${{github.workspace}}/CEdev/bin
+  CEMU_PATH: ${{github.workspace}}/CEmu
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev clang ninja-build
+
+      - name: Configure CMake
+        run: cmake --preset native
+
+      - name: Build
+        run: cmake --build build/native
+
+      - name: Run Tests
+        run: ctest --test-dir build/native --output-on-failure
+
+  autotests-stable:
+    runs-on: ubuntu-22.04
+    environment: Autotester
+    env:
+      FASMG_PATH: ${{github.workspace}}/fasmg
+    steps:
+      - name: Install Clang 20 for C23 support
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-20 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-20 libpng-dev libfreetype6-dev libfontconfig1-dev fonts-dejavu-core pkg-config
+          echo "CC=clang-20" >> $GITHUB_ENV
+          echo "CXX=clang++-20" >> $GITHUB_ENV
+
+      - name: Download CE Toolchain v14.2
+        run: |
+          curl -L -o CEdev-Linux.tar.gz https://github.com/CE-Programming/toolchain/releases/download/v14.2/CEdev-Linux.tar.gz
+          tar -xzf CEdev-Linux.tar.gz
+          echo "${{env.CEDEV_BIN}}" >> $GITHUB_PATH
+
+      - name: Download and Install Fasmg
+        run: |
+          FASMG_PAGE=$(curl -s https://flatassembler.net/download.php)
+          FASMG_HREF=$(echo "$FASMG_PAGE" | grep -oP 'href="\K[^"]*fasmg[^"]*\.zip' | head -1)
+          echo "Downloading fasmg from: https://flatassembler.net/$FASMG_HREF"
+          curl -L -o fasmg.zip "https://flatassembler.net/$FASMG_HREF"
+          mkdir -p ${{env.FASMG_PATH}}
+          unzip fasmg.zip -d ${{env.FASMG_PATH}}
+          cp ${{env.FASMG_PATH}}/fasmg.x64 ${{env.CEDEV_BIN}}/fasmg
+          chmod +x ${{env.CEDEV_BIN}}/fasmg
+
+      - name: Checkout CEmu
+        uses: actions/checkout@v4
+        with:
+          repository: CE-Programming/CEmu
+          ref: master
+          path: ${{env.CEMU_PATH}}
+          persist-credentials: false
+
+      - name: Build CEmu Core
+        run: make -j4 -C ${{env.CEMU_PATH}}/core
+
+      - name: Build Autotester CLI
+        run: make -j4 -C ${{env.CEMU_PATH}}/tests/autotester
+
+      - name: Install Autotester CLI
+        run: |
+          cp ${{env.CEMU_PATH}}/tests/autotester/autotester ${{env.CEDEV_BIN}}/autotester
+          chmod +x ${{env.CEDEV_BIN}}/*
+
+      - name: Test Build Dependencies
+        run: |
+          ez80-clang --version
+          ez80-link --version
+          fasmg /dev/null /dev/null
+          cedev-config --makefile
+
+      - name: Checkout libtexce
+        uses: actions/checkout@v4
+        with:
+          path: libtexce
+          submodules: recursive
+
+      - name: Download CI test secrets
+        uses: actions/checkout@v4
+        with:
+          repository: CE-Programming/ci-test-secrets
+          token: ${{ secrets.GH_PAT_CI_SECRETS }}
+          path: secrets
+
+      - name: Generate Test Cases
+        run: make -C libtexce/autotests generate
+
+      - name: Build Autotests
+        run: make -j$(nproc) -C libtexce/autotests build
+
+      - name: Run Autotests
+        env:
+          AUTOTESTER_ROM: ${{github.workspace}}/secrets/83pce_515_530.rom
+          AUTOTESTER_FLAGS: "-s"
+        run: make -C libtexce/autotests test-all
+
+      - name: Export Screenshots
+        if: always()
+        run: |
+          make -C libtexce/autotests export-images
+          libtexce/autotests/export_images --generated libtexce/autotests/generated --output libtexce/autotests/artifact
+
+      - name: Upload Screenshots Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autotest-screenshots-stable
+          path: libtexce/autotests/artifact/
+
+      - name: Remove Secrets
+        if: always()
+        run: rm -rf ${{github.workspace}}/secrets
+
+  autotests-nightly:
+    runs-on: ubuntu-22.04
+    environment: Autotester
+    env:
+      CEDEV_BINUTILS_BIN: ${{github.workspace}}/CEdev/binutils/bin
+    steps:
+      - name: Install Clang 20 for C23 support
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-20 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-20 libpng-dev libfreetype6-dev libfontconfig1-dev fonts-dejavu-core pkg-config
+          echo "CC=clang-20" >> $GITHUB_ENV
+          echo "CXX=clang++-20" >> $GITHUB_ENV
+
+      - name: Download CE Toolchain Nightly
+        run: |
+          curl -L -o CEdev-Linux.tar.gz https://github.com/CE-Programming/toolchain/releases/download/nightly/CEdev-Linux-nightly.tar.gz
+          tar -xzf CEdev-Linux.tar.gz
+          echo "${{env.CEDEV_BIN}}" >> $GITHUB_PATH
+          echo "${{env.CEDEV_BINUTILS_BIN}}" >> $GITHUB_PATH
+
+      - name: Checkout CEmu
+        uses: actions/checkout@v4
+        with:
+          repository: CE-Programming/CEmu
+          ref: master
+          path: ${{env.CEMU_PATH}}
+          persist-credentials: false
+
+      - name: Build CEmu Core
+        run: make -j4 -C ${{env.CEMU_PATH}}/core
+
+      - name: Build Autotester CLI
+        run: make -j4 -C ${{env.CEMU_PATH}}/tests/autotester
+
+      - name: Install Autotester CLI
+        run: |
+          cp ${{env.CEMU_PATH}}/tests/autotester/autotester ${{env.CEDEV_BIN}}/autotester
+          chmod +x ${{env.CEDEV_BIN}}/*
+
+      - name: Test Build Dependencies
+        run: |
+          ez80-clang --version
+          ez80-link --version
+          z80-none-elf-as --version
+          cedev-config --makefile
+
+      - name: Checkout libtexce
+        uses: actions/checkout@v4
+        with:
+          path: libtexce
+          submodules: recursive
+
+      - name: Download CI test secrets
+        uses: actions/checkout@v4
+        with:
+          repository: CE-Programming/ci-test-secrets
+          token: ${{ secrets.GH_PAT_CI_SECRETS }}
+          path: secrets
+
+      - name: Generate Test Cases
+        run: make -C libtexce/autotests generate
+
+      - name: Build Autotests
+        run: make -j$(nproc) -C libtexce/autotests build
+
+      - name: Run Autotests
+        env:
+          AUTOTESTER_ROM: ${{github.workspace}}/secrets/83pce_515_530.rom
+          AUTOTESTER_FLAGS: "-s"
+        run: make -C libtexce/autotests test-all
+
+      - name: Export Screenshots
+        if: always()
+        run: |
+          make -C libtexce/autotests export-images
+          libtexce/autotests/export_images --generated libtexce/autotests/generated --output libtexce/autotests/artifact
+
+      - name: Upload Screenshots Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autotest-screenshots-nightly
+          path: libtexce/autotests/artifact/
+
+      - name: Remove Secrets
+        if: always()
+        run: rm -rf ${{github.workspace}}/secrets

@@ -104,7 +104,8 @@ typedef enum
 	ACC_DOT = 4,
 	ACC_DDOT = 5,
 	ACC_OVERLINE = 6,
-	ACC_UNDERLINE = 7
+	ACC_UNDERLINE = 7,
+	ACC_TILDE = 8
 } AccentType;
 
 typedef enum

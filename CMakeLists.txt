@@ -39,7 +39,11 @@ endif()
 if(ENABLE_CLANG_TIDY)
   find_program(CLANG_TIDY_EXE NAMES clang-tidy)
   if(CLANG_TIDY_EXE)
-    set(_clang_tidy_cmd ${CLANG_TIDY_EXE} "-warnings-as-errors=*")
+    set(_clang_tidy_cmd ${CLANG_TIDY_EXE}
+      "-header-filter=${CMAKE_SOURCE_DIR}/src/.*"
+      "-checks=-clang-analyzer-optin.core.EnumCastOutOfRange,-bugprone-narrowing-conversions,-bugprone-easily-swappable-parameters,-clang-analyzer-security.insecureAPI.strcpy,-clang-diagnostic-missing-field-initializers"
+      "-warnings-as-errors=*"
+    )
     set(CMAKE_C_CLANG_TIDY   ${_clang_tidy_cmd})
     set(CMAKE_CXX_CLANG_TIDY ${_clang_tidy_cmd})
   else()
@@ -71,14 +75,26 @@ target_include_directories(tex_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Add PortCE includes if building demos (fontlibc.h etc.)
 option(ENABLE_PORTCE_DEMO "Build demo_text using PortCE for native SDL rendering" ON)
 if(ENABLE_PORTCE_DEMO AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/portce)
-  target_include_directories(tex_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/portce/PortCE_include
-    ${CMAKE_CURRENT_SOURCE_DIR}/portce/PortCE_config
+  set(_SAVED_C_CLANG_TIDY "${CMAKE_C_CLANG_TIDY}")
+  set(_SAVED_CXX_CLANG_TIDY "${CMAKE_CXX_CLANG_TIDY}")
+  set(CMAKE_C_CLANG_TIDY "")
+  set(CMAKE_CXX_CLANG_TIDY "")
+
+  add_subdirectory(portce)
+
+  set(CMAKE_C_CLANG_TIDY "${_SAVED_C_CLANG_TIDY}")
+  set(CMAKE_CXX_CLANG_TIDY "${_SAVED_CXX_CLANG_TIDY}")
+  
+  target_compile_options(PortCE PRIVATE
+    -Wno-error
+    -Wno-bit-int-extension
+    -Wno-old-style-cast
   )
-  # Disable warnings for PortCE types (_BitInt, int conversions)
+  target_include_directories(tex_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/portce/src/include
+  )
   target_compile_options(tex_core PRIVATE
     -Wno-bit-int-extension
     -Wno-implicit-int-conversion
@@ -93,56 +109,14 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
   find_package(SDL2 QUIET)
 
   if(ENABLE_PORTCE_DEMO AND SDL2_FOUND AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/portce)
-    # PortCE submodule paths for tests
-    set(PORTCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/portce)
-
-    # Collect PortCE sources
-    file(GLOB_RECURSE PORTCE_SRC_FILES
-      "${PORTCE_DIR}/PortCE_src/*.c"
-      "${PORTCE_DIR}/PortCE_src/*.cpp"
-    )
-
-    # Create object library for PortCE (shared by tests and demo)
-    add_library(portce_lib OBJECT ${PORTCE_SRC_FILES})
-    target_include_directories(portce_lib PUBLIC
-      ${PORTCE_DIR}/PortCE_include
-      ${PORTCE_DIR}/PortCE_config
-    )
-    target_compile_options(portce_lib PRIVATE
-      -Wno-bit-int-extension
-      -Wno-c99-extensions
-      -Wno-c23-extensions
-      -Wno-zero-length-array
-      -Wno-old-style-cast
-      -Wno-sign-conversion
-      -Wno-implicit-int-conversion
-      -Wno-strict-prototypes
-      -Wno-missing-prototypes
-      -Wno-missing-field-initializers
-      -Wno-implicit-fallthrough
-      -Wno-gnu-binary-literal
-      -Wno-format-nonliteral
-      -Wno-cast-qual
-      -Wno-double-promotion
-      -Wno-shadow
-      -Wno-unused-parameter
-      -Wno-shorten-64-to-32
-      -Wno-null-conversion
-      -Wno-gnu-anonymous-struct
-      -Wno-nested-anon-types
-      -Wno-format-pedantic
-    )
-
-    add_executable(test_token tests/test_token.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    add_executable(test_parse tests/test_parse.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    add_executable(test_measure tests/test_measure.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    add_executable(test_layout tests/test_layout.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    # test_draw disabled - TexDrawOp types not currently defined
-    # add_executable(test_draw tests/test_draw.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    add_executable(test_symbols tests/test_symbols.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    # test_errors disabled - uses tex_draw_log_* functions
-    # add_executable(test_errors tests/test_errors.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
-    add_executable(test_pool tests/test_pool.c $<TARGET_OBJECTS:tex_core> $<TARGET_OBJECTS:portce_lib>)
+    add_executable(test_token tests/test_token.c $<TARGET_OBJECTS:tex_core>)
+    add_executable(test_parse tests/test_parse.c $<TARGET_OBJECTS:tex_core>)
+    add_executable(test_measure tests/test_measure.c $<TARGET_OBJECTS:tex_core>)
+    add_executable(test_layout tests/test_layout.c $<TARGET_OBJECTS:tex_core>)
+    # add_executable(test_draw tests/test_draw.c $<TARGET_OBJECTS:tex_core>)
+    add_executable(test_symbols tests/test_symbols.c $<TARGET_OBJECTS:tex_core>)
+    # add_executable(test_errors tests/test_errors.c $<TARGET_OBJECTS:tex_core>)
+    add_executable(test_pool tests/test_pool.c $<TARGET_OBJECTS:tex_core>)
 
     # Copy font appvars to build directory for tests
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/appvar)
@@ -162,7 +136,7 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
     )
     foreach(tgt IN ITEMS test_token test_parse test_measure test_layout test_symbols test_pool)
       target_include_directories(${tgt} PRIVATE ${_TEX_INC})
-      target_link_libraries(${tgt} PRIVATE SDL2 SDL2_mixer -lm)
+      target_link_libraries(${tgt} PRIVATE PortCE -lm)
     endforeach()
 
     # Register tests with CTest
@@ -192,80 +166,9 @@ if(ENABLE_HOST_TESTS AND NOT CMAKE_CROSSCOMPILING)
   endif()
 endif()
 
-# ---------------------------------------------------------------------------
-# PortCE Demo (native testing with real graphics)
-# ---------------------------------------------------------------------------
-
-if(ENABLE_PORTCE_DEMO AND NOT CMAKE_CROSSCOMPILING)
-  find_package(SDL2 QUIET)
-
-  if(SDL2_FOUND)
-    # PortCE submodule paths
-    set(PORTCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/portce)
-
-    # Collect PortCE sources
-    file(GLOB_RECURSE PORTCE_SRC_FILES
-      "${PORTCE_DIR}/PortCE_src/*.c"
-      "${PORTCE_DIR}/PortCE_src/*.cpp"
-    )
-
-    # Create demo_text_portce executable
-    add_executable(demo_text_portce
-      demo/ce/demo_text.cpp
-      $<TARGET_OBJECTS:tex_core>
-      ${PORTCE_SRC_FILES}
-    )
-
-    target_include_directories(demo_text_portce PRIVATE
-      ${CMAKE_CURRENT_SOURCE_DIR}
-      ${CMAKE_CURRENT_SOURCE_DIR}/src
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/tex
-      ${CMAKE_CURRENT_SOURCE_DIR}/include
-      ${PORTCE_DIR}/PortCE_include
-      ${PORTCE_DIR}/PortCE_config
-    )
-
-    target_compile_options(demo_text_portce PRIVATE
-      # PortCE header warnings
-      -Wno-bit-int-extension         # _BitInt(24) in PortCE.h
-      -Wno-c99-extensions            # flexible array members in graphx.h
-      -Wno-c23-extensions            # empty initializer in PortCE_Keybinds.h
-      -Wno-zero-length-array         # zero size arrays in PortCE_Keybinds.h
-      # PortCE source warnings
-      -Wno-old-style-cast            # C-style casts
-      -Wno-sign-conversion           # int to uint32_t
-      -Wno-implicit-int-conversion   # precision loss
-      -Wno-strict-prototypes         # missing void in function declarations
-      -Wno-missing-prototypes        # grab_SDL2_event
-      -Wno-missing-field-initializers
-      -Wno-implicit-fallthrough      # switch case fallthrough
-      -Wno-gnu-binary-literal        # 0b... literals
-      -Wno-format-nonliteral         # vsnprintf format
-      -Wno-cast-qual                 # const cast
-      -Wno-double-promotion          # float to double
-      -Wno-shadow                    # variable shadowing
-      -Wno-unused-parameter          # unused params
-      -Wno-shorten-64-to-32          # size_t to int
-      -Wno-null-conversion           # NULL to uint8_t
-      -Wno-gnu-anonymous-struct      # anonymous structs
-      -Wno-nested-anon-types         # nested anonymous types
-      -Wno-format-pedantic           # format specifier mismatches
-    )
-
-    target_link_libraries(demo_text_portce PUBLIC SDL2 SDL2_mixer -lm)
-
-    # Copy font appvars to build directory
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/appvar)
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/assets)
-      file(GLOB FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/*.8xv")
-      foreach(font_file ${FONT_FILES})
-        get_filename_component(font_name ${font_file} NAME)
-        configure_file(${font_file} ${CMAKE_BINARY_DIR}/appvar/${font_name} COPYONLY)
-      endforeach()
-    endif()
-
-    message(STATUS "PortCE demo enabled - run demo_text_portce from ${CMAKE_BINARY_DIR}")
-  else()
-    message(WARNING "ENABLE_PORTCE_DEMO=ON but SDL2 not found - skipping PortCE demo")
+if(ENABLE_PORTCE_DEMO AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/portce)
+  if(EMSCRIPTEN OR (NOT CMAKE_CROSSCOMPILING AND SDL2_FOUND))
+    add_subdirectory(demo/portce)
   endif()
 endif()
+

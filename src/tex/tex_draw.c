@@ -469,6 +469,14 @@ static void draw_overlay(Node* n, TexCoord x, TexBaseline baseline_y, FontRole r
 		}
 		break;
 
+	case ACC_TILDE:
+		{
+			int glyph_w = tex_metrics_glyph_width('~', role);
+			int cx = x.v + (b->w - glyph_w) / 2;
+			rec_glyph(cx, top - 3, '~', role);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -607,8 +615,8 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 		if (is_left)
 		{
 			rec_line(x, top, x, bot);
-			rec_line(x, top, x + w / 2, top);
-			rec_line(x, bot, x + w / 2, bot);
+			rec_line(x, top, x + (w - 1) / 2, top);
+			rec_line(x, bot, x + (w - 1) / 2, bot);
 		}
 		else
 		{
@@ -686,7 +694,7 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 		if (is_left)
 		{
 			rec_line(x, top, x, bot);
-			rec_line(x, bot, x + w / 2, bot);
+			rec_line(x, bot, x + (w - 1) / 2, bot);
 		}
 		else
 		{
@@ -698,7 +706,7 @@ static void draw_proc_delim(int x, int y_center, int h, DelimType type, int is_l
 		if (is_left)
 		{
 			rec_line(x, top, x, bot);
-			rec_line(x, top, x + w / 2, top);
+			rec_line(x, top, x + (w - 1) / 2, top);
 		}
 		else
 		{

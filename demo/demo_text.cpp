@@ -152,14 +152,16 @@ int main(void)
 		dbg_printf("input buffer allocation failed\n");
 		return 1; // OOM check
 	}
-	strcpy(input_buffer, source_text);
+	strncpy(input_buffer, source_text, len + 1);
 	dbg_printf("input buffer copied\n");
 
 	// 5. Format Layout
 	TeX_Config cfg = {
 		.color_fg = COL_FG,
 		.color_bg = COL_BG,
-		.font_pack = "TeXFonts" // Logic handled manually above, but config keeps struct happy
+		.font_pack = "TeXFonts", // Logic handled manually above, but config keeps struct happy
+		.error_callback = nullptr,
+		.error_userdata = nullptr
 	};
 
 	// Margins
@@ -231,8 +233,8 @@ int main(void)
 	// 7. Cleanup - print stats before destroying
 	size_t peak_used, capacity, alloc_count, reset_count;
 	tex_renderer_get_stats(renderer, &peak_used, &capacity, &alloc_count, &reset_count);
-	dbg_printf("[tex] Pool used: %u / %u\n", (unsigned)peak_used, (unsigned)capacity);
-	dbg_printf("[tex] Total allocs: %u, resets: %u\n", (unsigned)alloc_count, (unsigned)reset_count);
+	dbg_printf("[tex] Pool used: %u / %u\n", static_cast<unsigned>(peak_used), static_cast<unsigned>(capacity));
+	dbg_printf("[tex] Total allocs: %u, resets: %u\n", static_cast<unsigned>(alloc_count), static_cast<unsigned>(reset_count));
 
 	tex_renderer_destroy(renderer);
 	if (layout)

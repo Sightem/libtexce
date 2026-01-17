@@ -1,0 +1,12 @@
+bin/
+obj/
+generated/
+casegen/gen_cases
+artifact/
+.results/
+export_images
+
+*.bin
+
+.vscode/
+*.swp

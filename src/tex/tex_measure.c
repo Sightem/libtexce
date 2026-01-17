@@ -68,6 +68,8 @@ static int accent_height(uint8_t type)
 		return 4;
 	case ACC_DDOT:
 		return 2;
+	case ACC_TILDE:
+		return 3;
 	case ACC_OVERLINE:
 		/* falls through */
 	case ACC_UNDERLINE:

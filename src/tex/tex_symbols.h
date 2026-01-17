@@ -86,6 +86,7 @@ enum
 	SYMC_ACC_DDOT = 5,
 	SYMC_ACC_OVERLINE = 6,
 	SYMC_ACC_UNDERLINE = 7,
+	SYMC_ACC_TILDE = 8,
 };
 
 enum

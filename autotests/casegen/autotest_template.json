@@ -1,0 +1,29 @@
+{
+  "transfer_files": [
+    "../../../../assets/clibs.8xg",
+    "../../../../assets/TeXFonts.8xv",
+    "../../../../assets/TeXScrpt.8xv",
+    "bin/%s.8xp"
+  ],
+  "target": {
+    "name": "%s",
+    "isASM": true
+  },
+  "sequence": [
+    "action|launch",
+    "delay|3000",
+    "hashWait|1",
+    "key|enter"
+  ],
+  "hashes": {
+    "1": {
+      "description": "%s/%s",
+      "start": "vram_start",
+      "size": "vram_8_size",
+      "timeout": 5000,
+      "expected_CRCs": [
+        "%s"
+      ]
+    }
+  }
+}

@@ -1282,6 +1282,8 @@ static NodeRef parse_command(Parser* p, const char* name, int len)
 				at = ACC_OVERLINE;
 			else if (d.code == SYMC_ACC_UNDERLINE)
 				at = ACC_UNDERLINE;
+			else if (d.code == SYMC_ACC_TILDE)
+				at = ACC_TILDE;
 			ov->data.overlay.type = at;
 			return ref;
 		}

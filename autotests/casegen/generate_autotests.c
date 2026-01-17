@@ -1,0 +1,299 @@
+#include <ctype.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+#if defined(_WIN32)
+#include <direct.h>
+#define MKDIR(path) _mkdir(path)
+#else
+#include <sys/stat.h>
+#define MKDIR(path) mkdir(path, 0775)
+#endif
+
+#include "cases.h"
+
+#define PATH_BUF 4096
+
+static int mkdir_p(const char* path)
+{
+	char tmp[PATH_BUF];
+	size_t len = strlen(path);
+	if (len >= sizeof(tmp))
+		return -1;
+
+	strcpy(tmp, path);
+	for (char* p = tmp + 1; *p; ++p)
+	{
+		if (*p == '/' || *p == '\\')
+		{
+			char old = *p;
+			*p = '\0';
+			if (MKDIR(tmp) != 0 && errno != EEXIST)
+				return -1;
+			*p = old;
+		}
+	}
+	if (MKDIR(tmp) != 0 && errno != EEXIST)
+		return -1;
+	return 0;
+}
+
+static void write_c_escaped(FILE* f, const char* s)
+{
+	for (const char* p = s; *p; ++p)
+	{
+		switch (*p)
+		{
+		case '\\':
+			fputs("\\\\", f);
+			break;
+		case '"':
+			fputs("\\\"", f);
+			break;
+		case '\n':
+			fputs("\\n", f);
+			break;
+		case '\r':
+			fputs("\\r", f);
+			break;
+		case '\t':
+			fputs("\\t", f);
+			break;
+		default:
+			fputc(*p, f);
+			break;
+		}
+	}
+}
+
+static void derive_prog_name(const char* suite, const char* case_name, char out[9])
+{
+	char tmp[128];
+	snprintf(tmp, sizeof(tmp), "%s_%s", suite, case_name);
+
+	size_t j = 0;
+	for (size_t i = 0; tmp[i] && j < 8; ++i)
+	{
+		unsigned char c = (unsigned char)tmp[i];
+		if (isalnum(c))
+			out[j++] = (char)toupper(c);
+	}
+
+	if (j == 0)
+	{
+		strcpy(out, "TEST");
+	}
+	else
+	{
+		out[j] = '\0';
+	}
+}
+
+static void sanitize_prog_name(const char* in, char out[9])
+{
+	size_t j = 0;
+	for (size_t i = 0; in[i] && j < 8; ++i)
+	{
+		unsigned char c = (unsigned char)in[i];
+		if (isalnum(c))
+			out[j++] = (char)toupper(c);
+	}
+
+	if (j == 0)
+		strcpy(out, "TEST");
+	else
+		out[j] = '\0';
+}
+
+static int path_printf(char* dst, size_t dst_size, const char* fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	int written = vsnprintf(dst, dst_size, fmt, args);
+	va_end(args);
+	return (written < 0 || (size_t)written >= dst_size) ? -1 : 0;
+}
+static int write_main_c(const char* path, const TestCase* tc)
+{
+	FILE* f = fopen(path, "wb");
+	if (!f)
+		return -1;
+
+	fputs("#include \"common/test_harness.h\"\n\n", f);
+	fputs("int main(void)\n{\n", f);
+	fputs("    TEST_INIT();\n\n", f);
+	fputs("    TEST_RENDER(\"", f);
+	write_c_escaped(f, tc->expr);
+	fputs("\", ", f);
+	fprintf(f, "%d, %d", tc->x, tc->y);
+	fputs(");\n\n", f);
+	fputs("    TEST_WAIT_KEY();\n", f);
+	fputs("    TEST_CLEANUP();\n", f);
+	fputs("    return 0;\n}\n", f);
+
+	fclose(f);
+	return 0;
+}
+
+static const char makefile_template[] = {
+#embed "makefile_template.mk"
+	, '\0'
+};
+
+static int write_makefile(const char* path, const char* case_name, const char* prog_name)
+{
+	FILE* f = fopen(path, "wb");
+	if (!f)
+		return -1;
+
+	fprintf(f, makefile_template, case_name, prog_name, case_name, case_name);
+
+	fclose(f);
+	return 0;
+}
+
+static const char autotest_template[] = {
+#embed "autotest_template.json"
+	, '\0'
+};
+
+static int write_autotest_json(const char* path, const char* case_name, const char* prog_name, const char* suite,
+                               const char* expected_crc)
+{
+	FILE* f = fopen(path, "wb");
+	if (!f)
+		return -1;
+
+	if (!expected_crc || !expected_crc[0])
+	{
+		fprintf(stderr, "Warning: missing expected CRC for %s/%s. Using 00000000.\n", suite, case_name);
+		expected_crc = "00000000";
+	}
+
+	fprintf(f, autotest_template, case_name, prog_name, suite, case_name, expected_crc);
+
+	fclose(f);
+	return 0;
+}
+
+static int generate_case(const char* out_dir, const char* suite, const TestCase* tc)
+{
+	char prog_name[9] = { 0 };
+	if (tc->prog_name && tc->prog_name[0])
+	{
+		sanitize_prog_name(tc->prog_name, prog_name);
+	}
+	else
+	{
+		derive_prog_name(suite, tc->name, prog_name);
+	}
+
+	char case_dir[PATH_BUF];
+	if (path_printf(case_dir, sizeof(case_dir), "%s/%s/%s", out_dir, suite, tc->name) != 0)
+		return -1;
+
+	char src_dir[PATH_BUF];
+	if (path_printf(src_dir, sizeof(src_dir), "%s/src", case_dir) != 0)
+		return -1;
+
+	if (mkdir_p(src_dir) != 0)
+		return -1;
+
+	char main_c[PATH_BUF];
+	if (path_printf(main_c, sizeof(main_c), "%s/src/main.c", case_dir) != 0)
+		return -1;
+
+	char mk_path[PATH_BUF];
+	if (path_printf(mk_path, sizeof(mk_path), "%s/makefile", case_dir) != 0)
+		return -1;
+
+	char json_path[PATH_BUF];
+	if (path_printf(json_path, sizeof(json_path), "%s/autotest.json", case_dir) != 0)
+		return -1;
+
+	if (write_main_c(main_c, tc) != 0)
+		return -1;
+	if (write_makefile(mk_path, tc->name, prog_name) != 0)
+		return -1;
+	if (write_autotest_json(json_path, tc->name, prog_name, suite, tc->expected_crc) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int write_cases_mk(const char* out_dir)
+{
+	char mk_path[PATH_BUF];
+	if (path_printf(mk_path, sizeof(mk_path), "%s/cases.mk", out_dir) != 0)
+		return -1;
+
+	FILE* f = fopen(mk_path, "wb");
+	if (!f)
+		return -1;
+
+	fputs("# Auto-generated by casegen\n", f);
+	fputs("GENERATED_TESTS :=", f);
+
+	for (size_t s = 0; s < g_test_suite_count; ++s)
+	{
+		const TestSuite* suite = &g_test_suites[s];
+		for (size_t i = 0; i < suite->case_count; ++i)
+		{
+			const TestCase* tc = &suite->cases[i];
+			fprintf(f, " \\\n  generated/%s/%s", suite->name, tc->name);
+		}
+	}
+
+	fputs("\n", f);
+	fclose(f);
+	return 0;
+}
+
+int main(int argc, char** argv)
+{
+	const char* out_dir = "generated";
+
+	for (int i = 1; i < argc; ++i)
+	{
+		if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+		{
+			out_dir = argv[++i];
+		}
+		else
+		{
+			fprintf(stderr, "Usage: %s [--out <dir>]\n", argv[0]);
+			return 1;
+		}
+	}
+
+	if (mkdir_p(out_dir) != 0)
+	{
+		fprintf(stderr, "Error: could not create output dir '%s'\n", out_dir);
+		return 1;
+	}
+
+	for (size_t s = 0; s < g_test_suite_count; ++s)
+	{
+		const TestSuite* suite = &g_test_suites[s];
+		for (size_t i = 0; i < suite->case_count; ++i)
+		{
+			if (generate_case(out_dir, suite->name, &suite->cases[i]) != 0)
+			{
+				fprintf(stderr, "Error: failed to generate case %s/%s\n", suite->name, suite->cases[i].name);
+				return 1;
+			}
+		}
+	}
+
+	if (write_cases_mk(out_dir) != 0)
+	{
+		fprintf(stderr, "Error: failed to write cases.mk\n");
+		return 1;
+	}
+
+	return 0;
+}
