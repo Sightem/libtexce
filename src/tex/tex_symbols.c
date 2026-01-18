@@ -41,6 +41,7 @@ static const MapEnt g_map[] = {
 	{ "bar", SYMC_ACC_BAR, SYM_ACCENT },
 	{ "begin", SYMC_BEGIN, SYM_STRUCT },
 	{ "beta", GL(TEXFONT_beta_CHAR), SYM_GLYPH },
+	{ "binom", SYMC_BINOM, SYM_STRUCT },
 	{ "cap", GL(TEXFONT_INTERSECTION_CHAR), SYM_GLYPH },
 	{ "cdot", GL(TEXFONT_DOT_OP_CHAR), SYM_GLYPH },
 	{ "chi", GL(TEXFONT_chi_CHAR), SYM_GLYPH },

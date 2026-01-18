@@ -18,7 +18,8 @@ static const TestCase g_complex_cases[] = {
 	{ "taylor_series", NULL, "$f(x) \\approx f(a) + f'(a)(x-a) + \\frac{f''(a)}{2}(x-a)^2$", "98A44073", 10, 5 },
 	{ "maclaurin_exp", NULL, "$e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!}$", "D6B4FEBE", 10, 5 },
 	{ "maclaurin_sin", NULL, "$\\sin x = \\sum_{n=0}^{\\infty} \\frac{(-1)^n x^{2n+1}}{(2n+1)!}$", "227F116E", 10, 5 },
-	{ "normal_dist", NULL, "$P(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$", "A1D31211", 10, 5 }
+	{ "normal_dist", NULL, "$P(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$", "A1D31211", 10, 5 },
+	{ "binom_coeff", NULL, "$$\\binom{n}{k} = \\frac{n!}{k!(n-k)!}$$", "3A4F8E54", 10, 5 }
 };
 
 static const TestCase g_matrix_cases[] = {
@@ -58,4 +59,3 @@ const TestSuite g_test_suites[] = {
 };
 
 const size_t g_test_suite_count = sizeof(g_test_suites) / sizeof(g_test_suites[0]);
-

@@ -35,6 +35,7 @@ enum
 	SYMC_UNDERBRACE = 6,
 	SYMC_BEGIN = 7,
 	SYMC_END = 8,
+	SYMC_BINOM = 9,
 };
 
 enum

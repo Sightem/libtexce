@@ -1327,6 +1327,38 @@ static NodeRef parse_command(Parser* p, const char* name, int len)
 				f->data.frac.den = den;
 				return ref;
 			}
+			if (d.code == SYMC_BINOM)
+			{
+				uint8_t saved_role = p->current_role;
+				p->current_role = 1; // FONTROLE_SCRIPT
+				NodeRef num = NODE_NULL;
+				NodeRef den = NODE_NULL;
+				if (ml_peek(&p->lx).kind == M_LBRACE)
+					num = parse_group(p);
+				else
+					num = parse_atom(p);
+				if (ml_peek(&p->lx).kind == M_LBRACE)
+					den = parse_group(p);
+				else
+					den = parse_atom(p);
+				p->current_role = saved_role;
+
+				ListBuilder lb;
+				lb_init(&lb);
+				lb_push(p, &lb, num);
+				lb_push(p, &lb, den);
+
+				NodeRef ref = new_node(p, N_MATRIX);
+				if (ref == NODE_NULL)
+					return NODE_NULL;
+				Node* n = pool_get_node(p->pool, ref);
+				n->data.matrix.delim_type = (uint8_t)DELIM_PAREN;
+				n->data.matrix.cells = lb.head;
+				n->data.matrix.rows = 2;
+				n->data.matrix.cols = 1;
+				n->data.matrix.col_separators = 0;
+				return ref;
+			}
 			else if (d.code == SYMC_SQRT)
 			{
 				// index is script context
