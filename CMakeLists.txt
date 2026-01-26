@@ -172,3 +172,8 @@ if(ENABLE_PORTCE_DEMO AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/portce)
   endif()
 endif()
 
+if(ENABLE_PORTCE_DEMO AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/portce)
+  if(NOT CMAKE_CROSSCOMPILING AND SDL2_FOUND)
+    add_subdirectory(apps/matrix/portce)
+  endif()
+endif()

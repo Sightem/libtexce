@@ -213,7 +213,7 @@ function(cedev_add_program)
 
     set(_base_flags
       -target ez80-none-elf
-      -S -MD -nostdinc 
+      -S -nostdinc
       -isystem "${CEDEV_INCLUDE}"
       -fno-threadsafe-statics
       -fno-addrsig
@@ -222,16 +222,20 @@ function(cedev_add_program)
       ${_CEDEV_WARNINGS} -Oz
     )
 
+    set(_depfile "${OUT_SRC}.d")
     add_custom_command(
       OUTPUT "${OUT_SRC}"
+      DEPFILE "${_depfile}"
+      BYPRODUCTS "${_depfile}"
       COMMAND "${CMAKE_COMMAND}" -E echo "[compiling] ${SRC}"
-      COMMAND "${_compiler}" 
+      COMMAND "${_compiler}"
               ${_base_flags}
               ${_std_flags}
               ${_lang_specific_flags}
               ${_debug_flags}
               ${_custom_includes_flags}
               ${_user_compile_options}
+              -MMD -MF "${_depfile}" -MT "${OUT_SRC}"
               "${ABS_SRC}" -o "${OUT_SRC}"
       DEPENDS "${ABS_SRC}"
       VERBATIM

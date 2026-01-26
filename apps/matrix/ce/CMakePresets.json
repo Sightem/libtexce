@@ -1,0 +1,20 @@
+{
+  "version": 8,
+  "configurePresets": [
+    {
+      "name": "ce",
+      "displayName": "TI-84+ CE (Matrix)",
+      "description": "Build MATRIX CE program",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../../../build/matrix_ce"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "ce",
+      "displayName": "Build MATRIX",
+      "configurePreset": "ce"
+    }
+  ]
+}
+

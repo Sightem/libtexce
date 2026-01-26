@@ -402,11 +402,10 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			// dynamic kerning for curved parentheses
 			// large parentheses have a hollow "belly". To balance spacing relative to the
 			// math axis (fraction lines), we overlap the content into this hollow space.
+			// NOTE: only apply to left side - reducing r_w causes external spacing issues
 			int kern = delim_w / 2;
 			if (n->data.auto_delim.left_type == DELIM_PAREN)
 				l_w -= kern;
-			if (n->data.auto_delim.right_type == DELIM_PAREN)
-				r_w -= kern;
 
 			TEX_COORD_ASSIGN(n->w, l_w + c_w + r_w);
 			TEX_COORD_ASSIGN(n->asc, axis + (h / 2));
@@ -491,7 +490,9 @@ static void measure_node(UnifiedPool* pool, Node* n)
 			}
 
 			int16_t axis = tex_metrics_math_axis();
-			TEX_COORD_ASSIGN(n->w, total_w + 2 * delim_w);
+		// add padding after right paren to compensate for visual gap in curved parens
+		int16_t paren_pad = (n->data.matrix.delim_type == DELIM_PAREN) ? (delim_w / 2) : 0;
+		TEX_COORD_ASSIGN(n->w, total_w + 2 * delim_w + paren_pad);
 			TEX_COORD_ASSIGN(n->asc, (total_h / 2) + axis);
 			TEX_COORD_ASSIGN(n->desc, total_h - n->asc);
 		}

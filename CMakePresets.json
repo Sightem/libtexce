@@ -16,6 +16,39 @@
             }
         },
         {
+            "name": "native-clang20",
+            "displayName": "Native (PortCE + SDL2, clang-20)",
+            "description": "Build for host system with PortCE demo and tests using clang-20",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/native-clang20",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/clang-20",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-20",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ENABLE_HOST_TESTS": "ON",
+                "ENABLE_PORTCE_DEMO": "ON"
+            }
+        },
+        {
+            "name": "native-asan-clang20",
+            "displayName": "Native (PortCE + SDL2, ASAN/LSAN, clang-20)",
+            "description": "Build for host system with sanitizers enabled (useful for leak/UB detection)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/native-asan-clang20",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/clang-20",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-20",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "ENABLE_HOST_TESTS": "ON",
+                "ENABLE_PORTCE_DEMO": "ON",
+                "ENABLE_STRICT_WARNINGS": "OFF",
+                "ENABLE_CLANG_TIDY": "OFF",
+                "CMAKE_C_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+                "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address"
+            }
+        },
+        {
             "name": "wasm",
             "displayName": "WebAssembly (Emscripten)",
             "description": "Build for browser using Emscripten",
@@ -36,6 +69,16 @@
             "name": "native",
             "displayName": "Build Native",
             "configurePreset": "native"
+        },
+        {
+            "name": "native-clang20",
+            "displayName": "Build Native (clang-20)",
+            "configurePreset": "native-clang20"
+        },
+        {
+            "name": "native-asan-clang20",
+            "displayName": "Build Native (ASAN/LSAN, clang-20)",
+            "configurePreset": "native-asan-clang20"
         },
         {
             "name": "wasm",

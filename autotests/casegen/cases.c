@@ -18,8 +18,8 @@ static const TestCase g_complex_cases[] = {
 	{ "taylor_series", NULL, "$f(x) \\approx f(a) + f'(a)(x-a) + \\frac{f''(a)}{2}(x-a)^2$", "98A44073", 10, 5 },
 	{ "maclaurin_exp", NULL, "$e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!}$", "28234AA9", 10, 5 },
 	{ "maclaurin_sin", NULL, "$\\sin x = \\sum_{n=0}^{\\infty} \\frac{(-1)^n x^{2n+1}}{(2n+1)!}$", "0B91532B", 10, 5 },
-	{ "normal_dist", NULL, "$P(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$", "A1D31211", 10, 5 },
-	{ "binom_coeff", NULL, "$$\\binom{n}{k} = \\frac{n!}{k!(n-k)!}$$", "D4CD94CC", 10, 5 }
+	{ "normal_dist", NULL, "$P(x) = \\frac{1}{\\sigma \\sqrt{2\\pi}} e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}$", "2037676E", 10, 5 },
+	{ "binom_coeff", NULL, "$\\binom{n}{k} = \\frac{n!}{k!(n-k)!}$", "A1C051B1", 10, 5 }
 };
 
 static const TestCase g_matrix_cases[] = {
