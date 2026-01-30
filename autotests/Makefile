@@ -40,7 +40,7 @@ build: generate $(BUILD_TARGETS)
 
 %/.built: generate
 	@echo "Building $*"
-	@$(MAKE) -C $* --no-print-directory
+	@$(MAKE) -C $* --no-print-directory all
 	@touch $@
 
 test-all:

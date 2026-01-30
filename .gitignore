@@ -87,6 +87,7 @@ Thumbs.db
 # Logs & profiling (add as needed)
 *.log
 perf.data*
+profile/
 
 # Backup files
 *.bak
