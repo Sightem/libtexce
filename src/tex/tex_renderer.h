@@ -1,6 +1,10 @@
 #ifndef TEX_TEX_RENDERER_H
 #define TEX_TEX_RENDERER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "tex_internal.h"
 #include "tex_pool.h"
 
@@ -22,5 +26,9 @@ typedef struct TeX_Renderer
 
 // invalidate cached window (forces rehydration on next draw)
 void tex_renderer_invalidate(TeX_Renderer* r);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TEX_TEX_RENDERER_H
