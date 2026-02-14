@@ -8,7 +8,7 @@
 #   make test              # Run all tests sequentially with verbose output
 #   make clean             # Clean all build artifacts
 
-AUTOTESTER := $(shell which autotester 2>/dev/null || echo $(shell pwd)/../cemu/tests/autotester/autotester)
+AUTOTESTER ?= $(shell command -v autotester 2>/dev/null || command -v cemu-autotester 2>/dev/null || true)
 
 CASEGEN_DIR := casegen
 CASEGEN_BIN := $(CASEGEN_DIR)/gen_cases
@@ -49,6 +49,11 @@ test-all:
 		echo "Usage: AUTOTESTER_ROM=/path/to/rom make test-all"; \
 		exit 1; \
 	fi
+	@if [ -z "$(AUTOTESTER)" ]; then \
+		echo "Error: autotester not found in PATH"; \
+		echo "Install CEmu autotester and ensure either 'autotester' or 'cemu-autotester' is available."; \
+		exit 1; \
+	fi
 	@rm -rf $(RESULTS_DIR) && mkdir -p $(RESULTS_DIR)
 	@echo "Running $(words $(TESTS)) tests in parallel..."
 	@for dir in $(TESTS); do \
@@ -81,6 +86,11 @@ test: build
 	@if [ -z "$(AUTOTESTER_ROM)" ]; then \
 		echo "Error: AUTOTESTER_ROM not set"; \
 		echo "Usage: AUTOTESTER_ROM=/path/to/rom make test"; \
+		exit 1; \
+	fi
+	@if [ -z "$(AUTOTESTER)" ]; then \
+		echo "Error: autotester not found in PATH"; \
+		echo "Install CEmu autotester and ensure either 'autotester' or 'cemu-autotester' is available."; \
 		exit 1; \
 	fi
 	@PASSED=0; FAILED=0; \

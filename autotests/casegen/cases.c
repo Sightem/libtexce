@@ -11,10 +11,10 @@ static const TestCase g_basic_cases[] = {
 
 static const TestCase g_complex_cases[] = {
 	{ "quadratic", NULL, "$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$", "025A9B2B", 10, 5 },
-	{ "integral", NULL, "$\\int_{a}^{b} f(x) \\, dx$", "D1829FCF", 10, 5 },
+	{ "integral", NULL, "$\\int_{a}^{b} f(x) \\, dx$", "FBEE6C32", 10, 5 },
 	{ "sum_infty", NULL, "$\\sum_{n=0}^{\\infty} \\frac{x^n}{n!}$", "730F2145", 10, 5 },
 	{ "limit", NULL, "$\\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}$", "9D5B0D2F", 10, 5 },
-	{ "integral_id", NULL, "$\\int_{a}^{b} f(x) \\, dx = F(b) - F(a)$", "750457D6", 10, 5 },
+	{ "integral_id", NULL, "$\\int_{a}^{b} f(x) \\, dx = F(b) - F(a)$", "5F68A42B", 10, 5 },
 	{ "taylor_series", NULL, "$f(x) \\approx f(a) + f'(a)(x-a) + \\frac{f''(a)}{2}(x-a)^2$", "98A44073", 10, 5 },
 	{ "maclaurin_exp", NULL, "$e^x = \\sum_{n=0}^{\\infty} \\frac{x^n}{n!}$", "28234AA9", 10, 5 },
 	{ "maclaurin_sin", NULL, "$\\sin x = \\sum_{n=0}^{\\infty} \\frac{(-1)^n x^{2n+1}}{(2n+1)!}$", "0B91532B", 10, 5 },
@@ -45,7 +45,7 @@ static const TestCase g_accents_cases[] = {
 };
 
 static const TestCase g_operators_cases[] = {
-	{ "prod_limits", NULL, "$\\prod_{i=1}^{n} a_i$", "38903591", 10, 5 },
+	{ "prod_limits", NULL, "$\\prod_{i=1}^{n} a_i$", "5F979557", 10, 5 },
 	{ "nested_frac", NULL, "$\\frac{1}{1 + \\frac{1}{2 + \\frac{1}{3}}}$", "049A5A15", 10, 5 },
 	{ "sqrt_nested", NULL, "$\\sqrt{1 + \\sqrt{2 + \\sqrt{3}}}$", "6183A00C", 10, 5 }
 };

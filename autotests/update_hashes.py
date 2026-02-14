@@ -18,12 +18,12 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
-AUTOTESTER = SCRIPT_DIR / "../cemu/tests/autotester/autotester"
 DEFAULT_GENERATED_DIR = SCRIPT_DIR / "generated"
 DEFAULT_CASES_FILE = SCRIPT_DIR / "casegen" / "cases.c"
 
@@ -38,7 +38,31 @@ def get_autotester_rom():
         sys.exit(1)
     return rom
 
-def run_autotester(case_dir: Path, rom: str) -> str | None:
+def resolve_autotester() -> str:
+    """Resolve autotester executable from env/path."""
+    env_autotester = os.environ.get("AUTOTESTER")
+    if env_autotester:
+        return env_autotester
+
+    found = shutil.which("autotester")
+    if found:
+        return found
+
+    found = shutil.which("cemu-autotester")
+    if found:
+        return found
+
+    cemu_path = os.environ.get("CEMU_PATH")
+    if cemu_path:
+        candidate = Path(cemu_path) / "tests" / "autotester" / "autotester"
+        if candidate.exists():
+            return str(candidate)
+
+    print("Error: autotester executable not found.", file=sys.stderr)
+    print("Set AUTOTESTER=/path/to/autotester or install 'autotester'/'cemu-autotester' in PATH.", file=sys.stderr)
+    sys.exit(1)
+
+def run_autotester(case_dir: Path, rom: str, autotester: str) -> str | None:
     """Run autotester and extract actual CRC for hash #1."""
     json_path = case_dir / "autotest.json"
     if not json_path.exists():
@@ -53,7 +77,7 @@ def run_autotester(case_dir: Path, rom: str) -> str | None:
         return None
 
     result = subprocess.run(
-        [str(AUTOTESTER), "-d", str(json_path)],
+        [autotester, "-d", str(json_path)],
         env={**os.environ, "AUTOTESTER_ROM": rom},
         capture_output=True,
         text=True,
@@ -152,6 +176,7 @@ def main():
     args = parser.parse_args()
 
     rom = get_autotester_rom()
+    autotester = resolve_autotester()
     generated_dir = Path(args.generated_dir)
     cases_path = Path(args.cases_file)
 
@@ -171,7 +196,7 @@ def main():
                 continue
 
         print(f"Checking {suite}/{case_name}...")
-        crc = run_autotester(case_dir, rom)
+        crc = run_autotester(case_dir, rom, autotester)
         if not crc:
             print("  No CRC data captured")
             continue

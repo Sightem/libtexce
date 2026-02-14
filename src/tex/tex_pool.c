@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "tex_internal.h"
+#if defined(__TICE__)
+#include <debug.h>
+#endif
 
 static void update_peak(UnifiedPool* pool)
 {
@@ -16,8 +19,12 @@ int pool_init(UnifiedPool* pool, size_t total_size)
 		return -1;
 
 	pool->slab = (uint8_t*)malloc(total_size);
-	if (!pool->slab)
+	if (!pool->slab) {
+#if defined(__TICE__)
+		dbg_printf("[tex] pool_init OOM size=%u\n", (unsigned)total_size);
+#endif
 		return -1;
+	}
 
 	pool->capacity = total_size;
 	pool->peak_used = 0;

@@ -2,7 +2,3 @@
 	path = portce
 	url = https://github.com/adriweb/PortCE.git
 	branch = portce_v3
-[submodule "cemu"]
-	path = cemu
-	url = https://github.com/CE-Programming/CEmu.git
-	branch = latest-stable

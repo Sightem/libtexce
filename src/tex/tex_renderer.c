@@ -10,7 +10,6 @@ TeX_Renderer* tex_renderer_create_sized(size_t slab_size)
 	TeX_Renderer* r = (TeX_Renderer*)calloc(1, sizeof(TeX_Renderer));
 	if (!r)
 		return NULL;
-
 	if (pool_init(&r->pool, slab_size) != 0)
 	{
 		free(r);

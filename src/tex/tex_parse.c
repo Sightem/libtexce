@@ -76,6 +76,11 @@ static void lb_push(Parser* p, ListBuilder* lb, NodeRef item)
 			return;
 		}
 		TexListBlock* new_block = pool_get_list_block(p->pool, new_id);
+		if (new_block == NULL)
+		{
+			TEX_SET_ERROR(p->L, TEX_ERR_OOM, "Allocated list block is unavailable", 0);
+			return;
+		}
 
 		if (lb->head == LIST_NULL)
 		{
@@ -83,13 +88,26 @@ static void lb_push(Parser* p, ListBuilder* lb, NodeRef item)
 		}
 		else
 		{
-			lb->tail_block->next = new_id;
+			TexListBlock* prev_tail = lb->tail_block;
+			if (prev_tail == NULL && lb->tail_id != LIST_NULL)
+				prev_tail = pool_get_list_block(p->pool, lb->tail_id);
+			if (prev_tail == NULL)
+			{
+				TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "List builder state corrupted", 0);
+				return;
+			}
+			prev_tail->next = new_id;
 		}
 		lb->tail_id = new_id;
 		lb->tail_block = new_block;
 	}
 
 	// Append item to current block
+	if (lb->tail_block == NULL)
+	{
+		TEX_SET_ERROR(p->L, TEX_ERR_PARSE, "List builder has no tail block", 0);
+		return;
+	}
 	lb->tail_block->items[lb->tail_block->count++] = item;
 }
 
@@ -174,8 +192,8 @@ static int ml_at_end(MLex* lx) { return lx->cur >= lx->end; }
 
 static MToken ml_next(MLex* lx)
 {
-	while (!ml_at_end(lx) && *lx->cur == ' ')
-		++lx->cur; // ignore spaces
+	while (!ml_at_end(lx) && isspace((unsigned char)*lx->cur))
+		++lx->cur; // ignore ASCII whitespace in math mode
 	if (ml_at_end(lx))
 	{
 		MToken t = { M_EOF, lx->cur, 0 };

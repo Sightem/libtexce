@@ -1,0 +1,169 @@
+
+
+- \\begin
+- \\binom
+- \\end
+- \\frac
+- \\overbrace
+- \\sqrt
+- \\text
+- \\tfrac
+- \\underbrace
+
+- \\Pr
+- \\arccos
+- \\arcsin
+- \\arctan
+- \\arg
+- \\cos
+- \\cosh
+- \\cot
+- \\coth
+- \\csc
+- \\deg
+- \\det
+- \\dim
+- \\exp
+- \\gcd
+- \\hom
+- \\inf
+- \\ker
+- \\lg
+- \\lim
+- \\ln
+- \\log
+- \\max
+- \\min
+- \\sec
+- \\sin
+- \\sinh
+- \\sup
+- \\tan
+- \\tanh
+
+- \\bar
+- \\ddot
+- \\dot
+- \\hat
+- \\overline
+- \\tilde
+- \\underline
+- \\vec
+
+- \\!
+- \\,
+- \\:
+- \\;
+- \\qquad
+- \\quad
+
+- \\iiiint
+- \\iiint
+- \\iint
+- \\oiiint
+- \\oiint
+- \\oint
+
+- \\left
+- \\right
+
+- \\Delta
+- \\Gamma
+- \\Lambda
+- \\Omega
+- \\Phi
+- \\Pi
+- \\Psi
+- \\Sigma
+- \\Theta
+- \\Xi
+- \\alpha
+- \\angle
+- \\approx
+- \\ast
+- \\beta
+- \\cap
+- \\cdot
+- \\chi
+- \\circ
+- \\cong
+- \\cup
+- \\degree
+- \\delta
+- \\div
+- \\ell
+- \\emptyset
+- \\epsilon
+- \\equiv
+- \\eta
+- \\exists
+- \\forall
+- \\gamma
+- \\ge
+- \\geq
+- \\gets
+- \\hbar
+- \\in
+- \\infty
+- \\int
+- \\iota
+- \\kappa
+- \\lambda
+- \\langle
+- \\lbrace
+- \\lceil
+- \\le
+- \\leftarrow
+- \\leq
+- \\lfloor
+- \\mp
+- \\mu
+- \\nabla
+- \\ne
+- \\neq
+- \\notin
+- \\nu
+- \\omega
+- \\omicron
+- \\oplus
+- \\parallel
+- \\partial
+- \\perp
+- \\phi
+- \\pi
+- \\pm
+- \\prime
+- \\prod
+- \\propto
+- \\psi
+- \\rangle
+- \\rbrace
+- \\rceil
+- \\rfloor
+- \\rho
+- \\rightarrow
+- \\sigma
+- \\sim
+- \\subset
+- \\subseteq
+- \\sum
+- \\tau
+- \\therefore
+- \\theta
+- \\times
+- \\to
+- \\upsilon
+- \\xi
+- \\zeta
+
+
+These are not all standalone `texsym` commands, but are accepted by the parser in specific contexts:
+
+- Scripts: `^` and `_`
+- Matrix/array separators: `&` (column), `\\` (row)
+- Environment wrappers: `\begin{...}` / `\end{...}`
+- Supported environments: `matrix`, `pmatrix`, `bmatrix`, `Bmatrix`, `vmatrix`, `array`
+- `array` column spec accepts `l`, `c`, `r` and `|` separators
+- Auto delimiters: `\left ... \right`
+- Delimiters accepted by `\left/\right`: `( )`, `[ ]`, `|`, `.`, `\{ \}`, `\lbrace \rbrace`, `\langle \rangle`, `\lfloor \rfloor`, `\lceil \rceil`, `\vert`
+- Square-root optional index form: `\sqrt[<index>]{<radicand>}`

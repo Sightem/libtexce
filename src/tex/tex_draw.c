@@ -63,6 +63,8 @@ static UnifiedPool* g_draw_pool = NULL;
 static fontlib_font_t* g_draw_font_main = NULL;
 static fontlib_font_t* g_draw_font_script = NULL;
 static FontRole g_draw_current_role = (FontRole)-1;
+static int g_draw_vis_top = 0;
+static int g_draw_vis_bot = TEX_VIEWPORT_H;
 
 void tex_draw_set_fonts(fontlib_font_t* main, fontlib_font_t* script)
 {
@@ -89,7 +91,7 @@ static void rec_text(int x, int y_top, const char* s, int len, FontRole role)
 	int desc = tex_metrics_desc(role);
 	int h = asc + desc;
 
-	if (y_top < 0 || (y_top + h) > TEX_VIEWPORT_H)
+	if (y_top < g_draw_vis_top || (y_top + h) > g_draw_vis_bot)
 	{
 		return;
 	}
@@ -105,7 +107,7 @@ static void rec_glyph(int x, int y_top, int glyph, FontRole role)
 	int desc = tex_metrics_desc(role);
 	int h = asc + desc;
 
-	if (y_top < 0 || (y_top + h) > TEX_VIEWPORT_H)
+	if (y_top < g_draw_vis_top || (y_top + h) > g_draw_vis_bot)
 	{
 		return;
 	}
@@ -116,7 +118,7 @@ static void rec_glyph(int x, int y_top, int glyph, FontRole role)
 
 static void rec_rule(int x, int y, int w)
 {
-	if (y < 0 || y >= TEX_VIEWPORT_H)
+	if (y < g_draw_vis_top || y >= g_draw_vis_bot)
 	{
 		return;
 	}
@@ -126,7 +128,7 @@ static void rec_rule(int x, int y, int w)
 static void rec_line(int x1, int y1, int x2, int y2)
 {
 
-	if ((y1 < 0 && y2 < 0) || (y1 >= TEX_VIEWPORT_H && y2 >= TEX_VIEWPORT_H))
+	if ((y1 < g_draw_vis_top && y2 < g_draw_vis_top) || (y1 >= g_draw_vis_bot && y2 >= g_draw_vis_bot))
 	{
 		return;
 	}
@@ -135,7 +137,7 @@ static void rec_line(int x1, int y1, int x2, int y2)
 
 static void rec_dot(int cx, int cy)
 {
-	if (cy < 0 || cy >= TEX_VIEWPORT_H)
+	if (cy < g_draw_vis_top || cy >= g_draw_vis_bot)
 	{
 		return;
 	}
@@ -144,7 +146,7 @@ static void rec_dot(int cx, int cy)
 
 static void rec_ellipse(int cx, int cy, int rx, int ry)
 {
-	if ((cy + ry) < 0 || (cy - ry) >= TEX_VIEWPORT_H)
+	if ((cy + ry) < g_draw_vis_top || (cy - ry) >= g_draw_vis_bot)
 	{
 		return;
 	}
@@ -1257,7 +1259,23 @@ static void rehydrate_window(TeX_Renderer* r, TeX_Layout* layout, int scroll_y)
 						}
 						else
 						{
-							x_cursor = (int16_t)(x_cursor + space_w);
+							NodeRef sp_ref = pool_alloc_node(&r->pool);
+							if (sp_ref != NODE_NULL)
+							{
+								Node* sp = pool_get_node(&r->pool, sp_ref);
+								sp->type = N_TEXT;
+								StringId sid = pool_alloc_string(&r->pool, " ", 1);
+								sp->data.text.sid = sid;
+								sp->data.text.len = 1;
+								sp->w = space_w;
+								sp->asc = tex_metrics_asc(FONTROLE_MAIN);
+								sp->desc = tex_metrics_desc(FONTROLE_MAIN);
+
+								dlb_push(&r->pool, &line_lb, sp_ref);
+								x_cursor = (int16_t)(x_cursor + space_w);
+								line_asc = TEX_MAX(line_asc, sp->asc);
+								line_desc = TEX_MAX(line_desc, sp->desc);
+							}
 						}
 					}
 					pending_space = 0;
@@ -1386,8 +1404,14 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 	g_draw_current_role = (FontRole)-1;
 	g_axis_y = 0;
 
-	int vis_top = 0;
+	int vis_top = y;
+	if (vis_top < 0)
+		vis_top = 0;
+	if (vis_top > TEX_VIEWPORT_H)
+		vis_top = TEX_VIEWPORT_H;
 	int vis_bot = TEX_VIEWPORT_H;
+	g_draw_vis_top = vis_top;
+	g_draw_vis_bot = vis_bot;
 
 	int viewport_top = scroll_y;
 	int viewport_bot = scroll_y + TEX_VIEWPORT_H;
@@ -1460,4 +1484,6 @@ void tex_draw(TeX_Renderer* r, TeX_Layout* layout, int x, int y, int scroll_y)
 	}
 
 	g_draw_pool = NULL;
+	g_draw_vis_top = 0;
+	g_draw_vis_bot = TEX_VIEWPORT_H;
 }
